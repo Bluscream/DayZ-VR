@@ -1,5 +1,6 @@
 #include "dayz_runtime_probe.hpp"
 
+#include "dayz_human_pose_probe.hpp"
 #include "logging.hpp"
 #include "stereo_state.hpp"
 
@@ -2803,6 +2804,8 @@ namespace dayz::runtime_probe
             else
                 logging::Error("Full FrameBase refresh hook could not be enabled; using camera-basis fallback");
         }
+        dayz::human_pose_probe::Initialize(g_moduleBase, g_buildProfile->peTimestamp,
+            g_buildProfile->imageSize);
         g_active = true;
         {
             std::ostringstream message;

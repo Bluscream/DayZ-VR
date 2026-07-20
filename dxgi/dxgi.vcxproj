@@ -32,7 +32,7 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel><SDLCheck>true</SDLCheck><ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard><PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)common;$(SolutionDir)third_party\minhook\include;$(OpenXrSdkDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)common;$(SolutionDir)vr_pose_solver\include;$(SolutionDir)third_party\minhook\include;$(OpenXrSdkDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;XR_USE_PLATFORM_WIN32;XR_USE_GRAPHICS_API_D3D11;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -49,9 +49,15 @@
     <ClInclude Include="..\common\debug_frame_source.hpp" /><ClInclude Include="..\common\openxr_host.hpp" />
     <ClInclude Include="..\common\dayz_frame_source.hpp" />
     <ClInclude Include="..\common\dayz_runtime_probe.hpp" />
+    <ClInclude Include="..\common\dayz_human_pose_probe.hpp" />
     <ClInclude Include="..\common\stereo_state.hpp" />
   </ItemGroup>
   <ItemGroup><None Include="dxgi.def" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\vr_pose_solver\vr_pose_solver.vcxproj">
+      <Project>{BC3BD874-E118-46D5-AE4B-33EC491E7E30}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" /><ClCompile Include="dxgi_proxy.cpp" /><ClCompile Include="swapchain_hooks.cpp" />
     <ClCompile Include="..\third_party\minhook\src\buffer.c" />
@@ -62,6 +68,7 @@
     <ClCompile Include="..\common\logging.cpp" /><ClCompile Include="..\common\debug_frame_source.cpp" /><ClCompile Include="..\common\openxr_host.cpp" />
     <ClCompile Include="..\common\dayz_frame_source.cpp" />
     <ClCompile Include="..\common\dayz_runtime_probe.cpp" />
+    <ClCompile Include="..\common\dayz_human_pose_probe.cpp" />
     <ClCompile Include="..\common\stereo_state.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" /><ImportGroup Label="ExtensionTargets" />

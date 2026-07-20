@@ -11,6 +11,9 @@ namespace
     std::atomic_uint g_orientationSequence{};
     std::array<std::atomic<float>, 3> g_hmdPosition{};
     std::atomic_uint g_positionSequence{};
+    std::array<std::array<std::atomic<float>, 7>, 2> g_controllerPoses{};
+    std::array<std::atomic_uint, 2> g_controllerPoseSequences{};
+    std::array<std::atomic_bool, 2> g_controllerPoseValidity{};
     std::array<std::atomic<float>, 6> g_cameraDirections{{0.0f, 0.0f, -1.0f,
         0.0f, 0.0f, -1.0f}};
     std::atomic_uint g_cameraDirectionSequence{};
@@ -97,6 +100,49 @@ namespace dayz::stereo_state
                 result.valid = after != 0;
                 return result;
             }
+        }
+    }
+
+    void UpdateControllerPose(unsigned hand, float positionX, float positionY,
+        float positionZ, float orientationX, float orientationY, float orientationZ,
+        float orientationW, bool valid) noexcept
+    {
+        if (hand >= g_controllerPoses.size())
+            return;
+        auto& sequence = g_controllerPoseSequences[hand];
+        sequence.fetch_add(1, std::memory_order_acq_rel);
+        const float values[]{positionX, positionY, positionZ, orientationX,
+            orientationY, orientationZ, orientationW};
+        for (std::size_t index = 0; index < std::size(values); ++index)
+            g_controllerPoses[hand][index].store(values[index], std::memory_order_relaxed);
+        g_controllerPoseValidity[hand].store(valid, std::memory_order_relaxed);
+        sequence.fetch_add(1, std::memory_order_release);
+    }
+
+    ControllerPose GetControllerPose(unsigned hand) noexcept
+    {
+        ControllerPose result{};
+        if (hand >= g_controllerPoses.size())
+            return result;
+        for (;;)
+        {
+            const unsigned before = g_controllerPoseSequences[hand].load(
+                std::memory_order_acquire);
+            if (before & 1u)
+                continue;
+            const auto& pose = g_controllerPoses[hand];
+            result.positionX = pose[0].load(std::memory_order_relaxed);
+            result.positionY = pose[1].load(std::memory_order_relaxed);
+            result.positionZ = pose[2].load(std::memory_order_relaxed);
+            result.orientationX = pose[3].load(std::memory_order_relaxed);
+            result.orientationY = pose[4].load(std::memory_order_relaxed);
+            result.orientationZ = pose[5].load(std::memory_order_relaxed);
+            result.orientationW = pose[6].load(std::memory_order_relaxed);
+            result.valid = g_controllerPoseValidity[hand].load(std::memory_order_relaxed);
+            const unsigned after = g_controllerPoseSequences[hand].load(
+                std::memory_order_acquire);
+            if (before == after)
+                return result;
         }
     }
 
