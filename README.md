@@ -15,6 +15,20 @@ The mod is loaded as a local DXGI proxy placed next to `DayZ_x64.exe`. The proxy
 
 The runtime component contains build-specific DayZ hooks used to observe and adjust the camera/render pipeline, alternate eye state, apply HMD rotation, remap GUI coordinates, and composite the interface for VR. Because these hooks rely on executable offsets, a DayZ update may make the mod stop working until the offsets are updated.
 
+## Updating DayZ offsets
+
+The solution contains the driver-free `dayz_offset_updater` console project. It reads Steam x64 PE files directly from disk, finds the required function and RIP-relative addresses, extracts the build-dependent render-context and pose-provider structure offsets from instruction operands, validates their layout relationships, and generates `common\dayz_offsets.generated.hpp`. It does not load the game executable, attach to a process, install a driver, or include Xbox/Game Pass support.
+
+Build the `Release|x64` configuration, then run the updater from the DayZ installation directory:
+
+```powershell
+.\vr_mod\bin\Release\updater\dayz_offset_updater.exe `
+  --output .\vr_mod\common\dayz_offsets.generated.hpp `
+  .\DayZ_x64.exe .\DayZDiag_x64.exe
+```
+
+Either EXE can be supplied alone. The generated header contains one profile per input file. If an update changes a code shape and a signature is missing or ambiguous, the updater exits with code 1 and does not report success; update that signature in `dayz_offset_updater\main.cpp` after verifying the new function in a disassembler.
+
 The supported executable identities are checked before any game hook is installed:
 
 ```text

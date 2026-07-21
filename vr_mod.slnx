@@ -4,6 +4,7 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="dxgi/dxgi.vcxproj" />
+  <Project Path="dayz_offset_updater/dayz_offset_updater.vcxproj" />
   <Project Path="vr_pose_solver/vr_pose_solver.vcxproj" />
   <Project Path="vr_pose_solver/tests/vr_pose_solver_tests.vcxproj" />
   <Project Path="xr_probe/xr_probe.vcxproj" />
