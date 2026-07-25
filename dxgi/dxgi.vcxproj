@@ -50,6 +50,7 @@
     <ClInclude Include="..\common\dayz_frame_source.hpp" />
     <ClInclude Include="..\common\dayz_runtime_probe.hpp" />
     <ClInclude Include="..\common\dayz_human_pose_probe.hpp" />
+    <ClInclude Include="..\common\dayz_offsets.generated.hpp" />
     <ClInclude Include="..\common\stereo_state.hpp" />
   </ItemGroup>
   <ItemGroup><None Include="dxgi.def" /></ItemGroup>

@@ -1,6 +1,7 @@
 #include "dayz_runtime_probe.hpp"
 
 #include "dayz_human_pose_probe.hpp"
+#include "dayz_offsets.generated.hpp"
 #include "logging.hpp"
 #include "stereo_state.hpp"
 
@@ -24,37 +25,8 @@
 
 namespace
 {
-    struct BuildProfile
-    {
-        const char* name;
-        std::uint32_t peTimestamp;
-        std::uint32_t imageSize;
-        std::uintptr_t prepareViewRva;
-        std::uintptr_t executeViewRva;
-        std::uintptr_t finalizeViewRva;
-        std::uintptr_t projectionDispatchRva;
-        std::uintptr_t hudLayoutRva;
-        std::uintptr_t guiInputMessageRva;
-        std::uintptr_t guiScaleRva;
-        std::uintptr_t engineSingletonRva;
-        std::uintptr_t inventoryPreviewPrepareCallerRva;
-        std::uintptr_t dynamicBlurRva;
-        std::uintptr_t dynamicBlurParameterIndexRva;
-        std::uintptr_t profileFovRva;
-        std::uintptr_t cameraManagerRva;
-        std::uintptr_t getActiveCameraStateRva;
-        std::uintptr_t cameraFovUpdateRva;
-    };
-
-    constexpr std::array kBuildProfiles{
-        BuildProfile{"DayZ_x64", 0x6A47B9AAu, 0x04407000u, 0x004501A0, 0x004513A0,
-            0x004514B0, 0x00952B30, 0x008A2DB0, 0x00351760, 0x0427063C,
-            0x04263740, 0x005C5899, 0x0022FB70, 0x00FEE968, 0x01008E70,
-            0x01008D50, 0x004B77D0, 0x004B86C0},
-        BuildProfile{"DayZDiag_x64", 0x6A47BAF9u, 0x049E7000u, 0x0048D8A0, 0x0048EB30,
-            0x0048EC40, 0x00B30D10, 0x00A7B7B0, 0x00389410, 0x04823F4C,
-            0x04815740, 0, 0, 0, 0, 0, 0, 0},
-    };
+    using BuildProfile = dayz::offsets::BuildProfile;
+    constexpr auto& kBuildProfiles = dayz::offsets::kBuildProfiles;
 
     const BuildProfile* g_buildProfile{};
     std::uint32_t kImageSize{};
@@ -73,10 +45,27 @@ namespace
     std::uintptr_t kCameraManagerRva{};
     std::uintptr_t kGetActiveCameraStateRva{};
     std::uintptr_t kCameraFovUpdateRva{};
-    constexpr std::ptrdiff_t kContextCamera = 0x118;
-    constexpr std::ptrdiff_t kPreparedContextCamera = 0xA34;
-    constexpr std::ptrdiff_t kContextDescriptor = 0xA10;
-    constexpr std::ptrdiff_t kContextArenaCursor = 0xA88;
+    std::uintptr_t kInventoryLayerDrawCallerRva{};
+    std::uintptr_t kHudLayerDrawCaller0Rva{};
+    std::uintptr_t kHudLayerDrawCaller1Rva{};
+    std::ptrdiff_t kContextCamera{};
+    std::ptrdiff_t kPreparedContextCamera{};
+    std::ptrdiff_t kContextDescriptor{};
+    std::ptrdiff_t kContextArenaCursor{};
+
+    bool IsInternalGuiDrawRva(std::uintptr_t rva) noexcept
+    {
+        const auto firstCaller = (std::min)({kInventoryLayerDrawCallerRva,
+            kHudLayerDrawCaller0Rva, kHudLayerDrawCaller1Rva});
+        const auto lastCaller = (std::max)({kInventoryLayerDrawCallerRva,
+            kHudLayerDrawCaller0Rva, kHudLayerDrawCaller1Rva});
+        constexpr std::uintptr_t pageMask = 0xFFF;
+        auto begin = firstCaller & ~pageMask;
+        if (begin >= pageMask + 1)
+            begin -= pageMask + 1;
+        const auto end = (lastCaller + pageMask) & ~pageMask;
+        return rva >= begin && rva < end;
+    }
 
     struct OpaqueEngine;
     struct OpaqueContext;
@@ -704,6 +693,16 @@ float4 PSMain(VertexOutput input) : SV_Target
         kCameraManagerRva = g_buildProfile->cameraManagerRva;
         kGetActiveCameraStateRva = g_buildProfile->getActiveCameraStateRva;
         kCameraFovUpdateRva = g_buildProfile->cameraFovUpdateRva;
+        kInventoryLayerDrawCallerRva = g_buildProfile->inventoryLayerDrawCallerRva;
+        kHudLayerDrawCaller0Rva = g_buildProfile->hudLayerDrawCaller0Rva;
+        kHudLayerDrawCaller1Rva = g_buildProfile->hudLayerDrawCaller1Rva;
+        kContextCamera = static_cast<std::ptrdiff_t>(g_buildProfile->contextCameraOffset);
+        kPreparedContextCamera = static_cast<std::ptrdiff_t>(
+            g_buildProfile->preparedContextCameraOffset);
+        kContextDescriptor = static_cast<std::ptrdiff_t>(
+            g_buildProfile->contextDescriptorOffset);
+        kContextArenaCursor = static_cast<std::ptrdiff_t>(
+            g_buildProfile->contextArenaCursorOffset);
 
         static constexpr std::uint8_t prepare[] = {
             0x48,0x85,0xD2,0x0F,0,0,0,0,0,0x48,0x8B,0xC4,0x55,0x56,0x57,0x41,
@@ -1636,7 +1635,7 @@ float4 PSMain(VertexOutput input) : SV_Target
                     if (address < g_moduleBase || address >= g_moduleBase + kImageSize)
                         continue;
                     const std::uintptr_t rva = address - g_moduleBase;
-                    if (rva >= 0x0025F000 && rva < 0x00261000)
+                    if (IsInternalGuiDrawRva(rva))
                         continue;
                     event.parentCallerRva = rva;
                     break;
@@ -1672,7 +1671,8 @@ float4 PSMain(VertexOutput input) : SV_Target
             g_hudCompositeWidth > 0.0f && g_hudCompositeHeight > 0.0f;
         const bool scaledComposite = g_overrideHudScale && g_hudScale < 0.999f;
         if ((!guiCapture && !explicitComposite && !scaledComposite) || !target ||
-            (caller != g_moduleBase + 0x002601C2 && caller != g_moduleBase + 0x0026038E))
+            (caller != g_moduleBase + kHudLayerDrawCaller0Rva &&
+                caller != g_moduleBase + kHudLayerDrawCaller1Rva))
             return false;
         ApiEvent targetDescription{};
         DescribeResource(target, targetDescription);
@@ -1714,7 +1714,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         const bool scaledGameplayHud = g_overrideHudScale && g_hudScale < 0.999f &&
             !RawGuiCursorModeActive();
         if ((!guiCapture && !explicitComposite && !scaledGameplayHud) || !target ||
-            caller != g_moduleBase + 0x002600DD)
+            caller != g_moduleBase + kInventoryLayerDrawCallerRva)
             return false;
 
         ApiEvent targetDescription{};
@@ -1846,8 +1846,10 @@ float4 PSMain(VertexOutput input) : SV_Target
         context->OMGetRenderTargets(1, &target, &depth);
         original.target.Attach(target);
         original.depth.Attach(depth);
-        const bool guiCandidate = indexed ? caller == g_moduleBase + 0x002600DD :
-            (caller == g_moduleBase + 0x002601C2 || caller == g_moduleBase + 0x0026038E);
+        const bool guiCandidate = indexed ?
+            caller == g_moduleBase + kInventoryLayerDrawCallerRva :
+            (caller == g_moduleBase + kHudLayerDrawCaller0Rva ||
+                caller == g_moduleBase + kHudLayerDrawCaller1Rva);
         const bool guiCapture = g_guiQuadEnabled && guiCandidate && IsGuiCursorModeActive();
         if (indexed ? !IsInventoryLayerDraw(context, caller, target, guiCapture) :
                 !IsHudLayerDraw(context, caller, target, guiCapture))

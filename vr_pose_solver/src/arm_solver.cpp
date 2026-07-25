@@ -17,6 +17,7 @@ namespace vr::pose
                 target.pole_position.IsFinite() && std::isfinite(target.twist_radians) &&
                 std::isfinite(target.weight) && std::isfinite(constraints.minimum_bend_radians) &&
                 std::isfinite(constraints.maximum_bend_radians) &&
+                std::isfinite(constraints.maximum_start_correction_radians) &&
                 std::isfinite(constraints.soften_start_ratio) &&
                 std::isfinite(constraints.epsilon) && constraints.epsilon > 0.0f;
         }
@@ -114,11 +115,20 @@ namespace vr::pose
             bendDirection * (shoulderSine * result.upper_length);
         const Vec3 fullEnd = chain.start.translation + forward * distance;
 
-        const Quaternion fullStartCorrection = Quaternion::FromTo(originalUpper,
+        Quaternion fullStartCorrection = Quaternion::FromTo(originalUpper,
             fullMiddle - chain.start.translation, epsilon);
+        const float startAngle = 2.0f * std::acos(std::clamp(
+            std::fabs(fullStartCorrection.Normalized(epsilon).w), 0.0f, 1.0f));
+        const float maximumStartCorrection = std::clamp(
+            constraints.maximum_start_correction_radians, 0.0f, kPi);
+        if (startAngle > maximumStartCorrection + epsilon)
+            fullStartCorrection = Quaternion::Slerp(Quaternion::Identity(),
+                fullStartCorrection, maximumStartCorrection / startAngle);
+        const Vec3 constrainedMiddle = chain.start.translation +
+            fullStartCorrection.Rotate(originalUpper);
         const Vec3 upperRotatedLower = fullStartCorrection.Rotate(originalLower);
         const Quaternion fullMiddleCorrection = Quaternion::FromTo(upperRotatedLower,
-            fullEnd - fullMiddle, epsilon);
+            fullEnd - constrainedMiddle, epsilon);
 
         const float weight = std::clamp(target.weight, 0.0f, 1.0f);
         result.start_correction = Quaternion::Slerp(Quaternion::Identity(), fullStartCorrection, weight);

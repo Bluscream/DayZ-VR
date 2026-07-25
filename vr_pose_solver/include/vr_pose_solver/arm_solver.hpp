@@ -27,6 +27,9 @@ namespace vr::pose
         // Bend is zero for a straight chain and approaches pi when folded back.
         float minimum_bend_radians{};
         float maximum_bend_radians{kPi - 1.0e-3f};
+        // Maximum model-space rotation applied at the shoulder relative to the
+        // authored pose. Pi preserves the unconstrained legacy behavior.
+        float maximum_start_correction_radians{kPi};
         // 1 disables soft reach. Values below 1 start easing before full extension.
         float soften_start_ratio{1.0f};
         float epsilon{kDefaultEpsilon};

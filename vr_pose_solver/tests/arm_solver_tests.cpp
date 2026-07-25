@@ -132,6 +132,14 @@ namespace
         Check(constrained.bend_radians >= 0.4999f, "minimum bend is enforced");
         Check(constrained.effective_distance < 2.0f, "minimum bend reduces extension");
 
+        TwoBoneConstraints shoulderLimited;
+        shoulderLimited.maximum_start_correction_radians = 0.35f;
+        const auto limitedShoulder = SolveTwoBone(DefaultChain(),
+            {{0, 1, 0}, {}, {0, 0, 1}}, shoulderLimited);
+        Check(QuaternionAgreement(limitedShoulder.start_correction,
+            Quaternion::Identity()) > std::cos(0.35f * 0.5f) - 1.0e-4f,
+            "shoulder correction is limited");
+
         const TwistDistribution split = DistributeTwist({1, 0, 0}, 1.0f, 0.25f);
         const Vec3 reference{0, 1, 0};
         const Vec3 combined = (split.distal * split.proximal).Rotate(reference);

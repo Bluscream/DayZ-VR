@@ -5,11 +5,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cwctype>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -31,7 +33,7 @@ namespace
         std::size_t immediateSize{};
     };
 
-    constexpr Signature kSignatures[]{
+    constexpr Signature kClientSignatures[]{
         {"prepareViewRva", "48 85 D2 0F ?? ?? ?? ?? ?? 48 8B C4 55 56 57 41 56 41 57 48 8D A8 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 48 89 58 08", {}},
         {"executeViewRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC ?? 48 8B 02 48 8B F9 48 8B CA 41 0F B6 E8 4C", {}},
         {"finalizeViewRva", "48 89 5C 24 08 57 48 83 EC 20 41 0F B6 F8 48 8B DA 45 84 C0 75 09 48 8B 02 48 8B CA FF 50 28", {}},
@@ -47,6 +49,12 @@ namespace
         {"cameraManagerRva", "48 8D 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 03 48 8B CB FF 50 60", 3},
         {"getActiveCameraStateRva", "83 B9 ?? ?? ?? ?? FF 74 08 48 8B 81 ?? ?? ?? ?? C3 48 8B 81 ?? ?? ?? ??", {}},
         {"cameraFovUpdateRva", "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 56 41 57 48 81 EC F0 00 00 00 0F 29 70 D8 48 8B E9", {}},
+        {"finalPlayerSimulationRva", "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 81 EC ?? 00 00 00 0F 10 05 ?? ?? ?? ?? 48 8D 15", {}},
+        {"humanAnimationUpdateRva", "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 74 24 20 55 48 8D AC 24 ?? ?? FF FF B8 ?? ?? 00 00 E8 ?? ?? ?? ?? 48 2B E0 0F 29 B4 24 ?? ?? 00 00 41 0F B6 D9 0F 28 F1 48 8B F9", {}},
+        {"setEntityTransformRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 60 48 8B 71 68 48 8B EA 48 8B F9 48 85 F6 74 ?? 48 83 7E 18 00", {}},
+        {"entityAttachmentTransformRva", "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 41 54 41 55 41 56 41 57 48 81 EC 90 00 00 00 4C 8B FA", {}},
+        {"playerProxyTransformRva", "48 89 5C 24 20 56 57 41 54 41 56 41 57 48 83 EC 20 45 33 FF 48 8B F9 4C 89 3A 45 0F B6 E1 4C 89 7A 08", {}},
+        {"playerProxyLocalTransformRva", "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 49 8B D9 44 8B 4C 24 50 48 8B FA 48 8B D3 FF 90 E8 05 00 00 8B 03 89", {}},
         {"skinningExportRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 49 8B F9 49 8B D8 4C 8B F2 48 8B F1", {}},
         {"poseProviderVtableRva", "48 8D 05 ?? ?? ?? ?? 48 89 01 4C 89 B1 18 0C 00 00 4C 89 B1 20 0C 00 00", 3},
         {"getLocalTransformRva", "40 53 48 83 EC 50 8B C2 49 8B D8 8B 94 81 ?? ?? ?? ?? 83 FA FF 75 0D", {}},
@@ -68,27 +76,45 @@ namespace
         {"providerPoseDirtyOffset", "48 8B C4 55 41 56 48 8D 68 A1 48 81 EC A8 00 00 00 80 B9 ?? ?? ?? ?? 00 4C 8B F1", {}, 0, 19, 4},
     };
 
+    constexpr Signature kServerSignatures[]{
+        {"tryFireWeaponRva", "48 89 5C 24 18 48 89 74 24 20 57 48 83 EC 60 8B FA 48 8B D9 48 85 C9 0F 84 ?? ?? ?? ?? 80 B9 E3 00 00 00 00 0F 85 ?? ?? ?? ??", {}},
+        {"fireParameterBuilderRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 60 48 8B 99 ?? ?? ?? ?? 49 8B F1 4C 8B CA 44 89 44 24 20 45 8B F0", {}},
+        {"shootFromCameraAdjustmentRva", "48 85 D2 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 70 20 55 57 41 56 48 8D 68 B1 48 81 EC C0 00 00 00 0F 29 78 C8 0F 28 FB 41 8B F0", {}},
+        {"cameraMuzzleConvergenceRva", "40 55 53 56 57 41 56 48 8D AC 24 80 FE FF FF 48 81 EC 80 02 00 00 48 8B FA 49 8B D9 48 8D 55 58 41 8B F0", {}},
+        {"finalShotCreationRva", "4C 89 4C 24 20 4C 89 44 24 18 89 54 24 10 55 41 55 41 56 41 57 48 81 EC 98 00 00 00 49 8B E9 44 8B FA 4C 8B F1", {}},
+        {"scriptRpcSendRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 40 41 0F B6 F9 48 8D 59 40 41 8B F0 48 8B EA", {}},
+        {"onRpcDispatchRva", "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 50 8B 05 ?? ?? ?? ?? 41 8B F9 49 8B F0 48 8B EA 48 8B D9 83 F8 FF", {}},
+    };
+
+    enum class ProfileKind
+    {
+        Client,
+        Server,
+    };
+
     struct Section { std::uint32_t rva{}, rawOffset{}, rawSize{}, characteristics{}; };
     struct Result
     {
+        ProfileKind kind{};
         std::string name;
         std::uint32_t timestamp{}, imageSize{};
         std::vector<std::uint32_t> values;
     };
 
-    std::uint32_t valueOf(const Result& result, std::string_view field)
+    std::uint32_t valueOf(const Result& result, std::span<const Signature> signatures,
+        std::string_view field)
     {
-        for (std::size_t index = 0; index < std::size(kSignatures); ++index)
-            if (field == kSignatures[index].field)
+        for (std::size_t index = 0; index < signatures.size(); ++index)
+            if (field == signatures[index].field)
                 return result.values.at(index);
         throw std::runtime_error("internal error: unknown generated field");
     }
 
-    void validateExtractedLayout(const Result& result)
+    void validateExtractedLayout(const Result& result, std::span<const Signature> signatures)
     {
-        for (std::size_t index = 0; index < std::size(kSignatures); ++index)
+        for (std::size_t index = 0; index < signatures.size(); ++index)
         {
-            const std::string_view field(kSignatures[index].field);
+            const std::string_view field(signatures[index].field);
             const auto value = result.values[index];
             if (field.ends_with("Rva") && value >= result.imageSize)
                 throw std::runtime_error(std::string(field) + ": RVA is outside SizeOfImage");
@@ -96,22 +122,31 @@ namespace
                 throw std::runtime_error(std::string(field) + ": implausibly large structure offset");
         }
 
-        const auto contextCamera = valueOf(result, "contextCameraOffset");
-        const auto preparedCamera = valueOf(result, "preparedContextCameraOffset");
-        const auto descriptor = valueOf(result, "contextDescriptorOffset");
-        const auto arena = valueOf(result, "contextArenaCursorOffset");
+        if (result.kind == ProfileKind::Server)
+        {
+            const auto adjustment = valueOf(result, signatures, "shootFromCameraAdjustmentRva");
+            const auto convergence = valueOf(result, signatures, "cameraMuzzleConvergenceRva");
+            if (convergence <= adjustment || convergence - adjustment > 0x1000)
+                throw std::runtime_error("server aiming functions failed relationship validation");
+            return;
+        }
+
+        const auto contextCamera = valueOf(result, signatures, "contextCameraOffset");
+        const auto preparedCamera = valueOf(result, signatures, "preparedContextCameraOffset");
+        const auto descriptor = valueOf(result, signatures, "contextDescriptorOffset");
+        const auto arena = valueOf(result, signatures, "contextArenaCursorOffset");
         if ((contextCamera & 7) || (preparedCamera & 3) || (descriptor & 7) ||
             (arena & 7) || !(contextCamera < descriptor && descriptor < preparedCamera &&
                 preparedCamera < arena) || arena - descriptor > 0x200)
             throw std::runtime_error("context layout offsets failed relationship validation");
 
-        const auto parentMap = valueOf(result, "providerParentMapOffset");
-        const auto boneMap = valueOf(result, "providerBoneMapOffset");
-        const auto modelTransforms = valueOf(result, "providerModelTransformsOffset");
-        const auto skinningTransforms = valueOf(result, "providerSkinningTransformsOffset");
-        const auto boneCount = valueOf(result, "providerBoneCountOffset");
-        const auto extraBoneCount = valueOf(result, "providerExtraBoneCountOffset");
-        const auto poseDirty = valueOf(result, "providerPoseDirtyOffset");
+        const auto parentMap = valueOf(result, signatures, "providerParentMapOffset");
+        const auto boneMap = valueOf(result, signatures, "providerBoneMapOffset");
+        const auto modelTransforms = valueOf(result, signatures, "providerModelTransformsOffset");
+        const auto skinningTransforms = valueOf(result, signatures, "providerSkinningTransformsOffset");
+        const auto boneCount = valueOf(result, signatures, "providerBoneCountOffset");
+        const auto extraBoneCount = valueOf(result, signatures, "providerExtraBoneCountOffset");
+        const auto poseDirty = valueOf(result, signatures, "providerPoseDirtyOffset");
         if ((parentMap | boneMap | modelTransforms | skinningTransforms | boneCount |
                 extraBoneCount) & 3 ||
             !(parentMap < boneMap && boneMap < modelTransforms &&
@@ -138,10 +173,10 @@ namespace
             parse();
         }
 
-        Result scan() const
+        Result scan(ProfileKind kind, std::span<const Signature> signatures) const
         {
-            Result result{path_.stem().string(), timestamp_, imageSize_, {}};
-            for (const auto& signature : kSignatures)
+            Result result{kind, path_.stem().string(), timestamp_, imageSize_, {}};
+            for (const auto& signature : signatures)
             {
                 const auto pattern = parsePattern(signature.pattern);
                 std::vector<std::uint32_t> hits;
@@ -202,7 +237,7 @@ namespace
                 std::cout << "  " << std::left << std::setw(38) << signature.field
                           << " 0x" << std::right << std::hex << std::uppercase << value << std::dec << '\n';
             }
-            validateExtractedLayout(result);
+            validateExtractedLayout(result, signatures);
             return result;
         }
 
@@ -276,32 +311,65 @@ namespace
         std::uint32_t timestamp_{}, imageSize_{};
     };
 
+    void writeProfileType(std::ofstream& out, std::string_view typeName,
+        std::string_view arrayName, std::span<const Signature> signatures,
+        const std::vector<const Result*>& results)
+    {
+        out << "    struct " << typeName << "\n    {\n        const char* name;\n"
+               "        std::uint32_t peTimestamp;\n        std::uint32_t imageSize;\n";
+        for (const auto& signature : signatures)
+            out << "        std::uintptr_t " << signature.field << ";\n";
+        out << "    };\n\n    inline constexpr std::array<" << typeName << ", "
+            << results.size() << "> " << arrayName << "{{\n";
+        for (const auto* result : results)
+        {
+            out << "        " << typeName << "{\"" << result->name << "\", 0x"
+                << std::hex << std::uppercase << result->timestamp << "u, 0x"
+                << result->imageSize << "u";
+            for (const auto value : result->values) out << ", 0x" << value;
+            out << "},\n";
+        }
+        out << "    }};\n\n";
+    }
+
     void writeHeader(const fs::path& path, const std::vector<Result>& results)
     {
         if (path.has_parent_path()) fs::create_directories(path.parent_path());
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         if (!out) throw std::runtime_error("cannot create " + path.string());
-        out << "// Generated by dayz_offset_updater. Do not edit by hand.\n#pragma once\n\n"
-               "#include <array>\n#include <cstdint>\n\nnamespace dayz::offsets\n{\n"
-               "    struct BuildProfile\n    {\n        const char* name;\n"
-               "        std::uint32_t peTimestamp;\n        std::uint32_t imageSize;\n";
-        for (const auto& signature : kSignatures)
-            out << "        std::uintptr_t " << signature.field << ";\n";
-        out << "    };\n\n    inline constexpr std::array<BuildProfile, " << results.size() << "> kBuildProfiles{{\n";
+        std::vector<const Result*> clientResults;
+        std::vector<const Result*> serverResults;
         for (const auto& result : results)
         {
-            out << "        BuildProfile{\"" << result.name << "\", 0x" << std::hex << std::uppercase
-                << result.timestamp << "u, 0x" << result.imageSize << "u";
-            for (const auto value : result.values) out << ", 0x" << value;
-            out << "},\n";
+            if (result.kind == ProfileKind::Client) clientResults.push_back(&result);
+            else serverResults.push_back(&result);
         }
-        out << "    }};\n}\n";
+        out << "// Generated by dayz_offset_updater. Do not edit by hand.\n#pragma once\n\n"
+               "#include <array>\n#include <cstdint>\n\nnamespace dayz::offsets\n{\n";
+        writeProfileType(out, "BuildProfile", "kBuildProfiles", kClientSignatures,
+            clientResults);
+        writeProfileType(out, "ServerBuildProfile", "kServerBuildProfiles",
+            kServerSignatures, serverResults);
+        out << "}\n";
         if (!out) throw std::runtime_error("failed while writing " + path.string());
+    }
+
+    std::wstring lowercase(std::wstring value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](wchar_t character)
+        {
+            return static_cast<wchar_t>(std::towlower(character));
+        });
+        return value;
     }
 
     void usage()
     {
-        std::cout << "Usage: dayz_offset_updater [--output <header>] <DayZ_x64.exe> [DayZDiag_x64.exe]\n";
+        std::cout << "Usage: dayz_offset_updater [--output <header>] <DayZ_x64.exe> "
+                     "[DayZDiag_x64.exe] [DayZServer_x64.exe]\n"
+                     "  DayZ_x64.exe       generates a client profile\n"
+                     "  DayZDiag_x64.exe   generates both client and server profiles\n"
+                     "  DayZServer_x64.exe generates a dedicated-server profile\n";
     }
 }
 
@@ -328,8 +396,24 @@ int wmain(int argc, wchar_t** argv)
         std::vector<Result> results;
         for (const auto& input : inputs)
         {
-            std::cout << "Scanning " << input.string() << '\n';
-            results.push_back(PeImage(input).scan());
+            const auto stem = lowercase(input.stem().wstring());
+            const bool dedicatedServer = stem == L"dayzserver_x64";
+            const bool diagnostic = stem == L"dayzdiag_x64";
+            const bool client = stem == L"dayz_x64" || diagnostic;
+            if (!dedicatedServer && !client)
+                throw std::runtime_error("unsupported executable name: " + input.filename().string());
+
+            const PeImage image(input);
+            if (client)
+            {
+                std::cout << "Scanning client profile " << input.string() << '\n';
+                results.push_back(image.scan(ProfileKind::Client, kClientSignatures));
+            }
+            if (dedicatedServer || diagnostic)
+            {
+                std::cout << "Scanning server profile " << input.string() << '\n';
+                results.push_back(image.scan(ProfileKind::Server, kServerSignatures));
+            }
         }
         writeHeader(output, results);
         std::cout << "Wrote " << output.string() << '\n';
