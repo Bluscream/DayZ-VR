@@ -24,16 +24,17 @@ Build the `Release|x64` configuration, then run the updater from the DayZ instal
 ```powershell
 .\vr_mod\bin\Release\updater\dayz_offset_updater.exe `
   --output .\vr_mod\common\dayz_offsets.generated.hpp `
-  .\DayZ_x64.exe .\DayZDiag_x64.exe
+  .\DayZ_x64.exe .\DayZDiag_x64.exe .\DayZServer_x64.exe
 ```
 
-Either EXE can be supplied alone. The generated header contains one profile per input file. If an update changes a code shape and a signature is missing or ambiguous, the updater exits with code 1 and does not report success; update that signature in `dayz_offset_updater\main.cpp` after verifying the new function in a disassembler.
+Any EXE can be supplied alone. `DayZ_x64.exe` generates a client/render profile, `DayZServer_x64.exe` generates a dedicated-server weapon/RPC profile, and `DayZDiag_x64.exe` generates both because `-server` makes the diagnostic executable act as a server. The generated header keeps these in separate `kBuildProfiles` and `kServerBuildProfiles` arrays. If an update changes a code shape and a signature is missing or ambiguous, the updater exits with code 1 and does not report success; update that signature in `dayz_offset_updater\main.cpp` after verifying the new function in a disassembler.
 
 The supported executable identities are checked before any game hook is installed:
 
 ```text
 DayZ_x64.exe      PE timestamp 0x6A47B9AA, SizeOfImage 0x04407000
 DayZDiag_x64.exe  PE timestamp 0x6A47BAF9, SizeOfImage 0x049E7000
+DayZServer_x64.exe PE timestamp 0x6A47B9F4, SizeOfImage 0x0113E000
 ```
 
 Support for `DayZDiag_x64.exe` is based on static signature relocation and should be treated as runtime-experimental until its startup log confirms that the diagnostic profile and all render signatures were accepted.
@@ -69,6 +70,20 @@ Controller buttons mirror their emulated keyboard or mouse state: the emulated i
 The quickbar cycle is maintained by the mod and emits the corresponding number key. Selecting a slot directly on the physical keyboard does not currently resynchronize the mod's cycle position.
 
 The solution also includes `xr_probe.exe`, a standalone OpenXR/D3D11 diagnostic application. It can verify the active OpenXR runtime and headset before the proxy is loaded into DayZ.
+
+## Server launcher
+
+The `dayz_server_launcher` project builds a transparent wrapper that can be used in place of `DayZServer_x64.exe` in a private server command line. It forwards arguments, waits for the original process, and returns the original process exit code. Place the built launcher beside the DayZ executables or select an explicit target:
+
+```powershell
+.\dayz_server_launcher.exe -config=serverDZ.cfg -port=2302 -profiles=profiles
+.\dayz_server_launcher.exe --launcher-diag -config=serverDZ.cfg -port=2302
+.\dayz_server_launcher.exe --launcher-target "G:\DayZ\DayZServer_x64.exe" -- -config=serverDZ.cfg
+```
+
+`--launcher-diag` selects `DayZDiag_x64.exe` and adds `-server` when absent. `--launcher-dry-run` prints the fully quoted child command without starting it. Details are in `dayz_server_launcher\README.md`.
+
+The launcher does not alter or bypass BattlEye, patch the server executable, or inject a DLL. Those behaviors are intentionally outside this project.
 
 ## Current limitations
 
@@ -125,6 +140,8 @@ Build outputs are kept separate:
 
 - `bin\Release\proxy\` contains the DayZ proxy build.
 - `bin\Release\probe\` contains the standalone OpenXR probe.
+- `bin\Release\updater\` contains the PE offset updater.
+- `bin\Release\server_launcher\` contains the server process wrapper.
 
 The post-build step copies `openxr_loader.dll` and `dayz_openxr.ini` into each output directory.
 
