@@ -143,6 +143,15 @@ namespace
     thread_local bool g_currentResolvedProxyRenderPath{};
     std::atomic_uint g_playerProxyLocalTransformLogs{};
     std::atomic_bool g_loggedPlayerProxyLocalCorrection{};
+    struct TwoHandCoupling
+    {
+        vr::pose::Transform rightDummyToLeftHand{};
+        vr::pose::Transform leftHandTarget{};
+        bool candidate{};
+        bool active{};
+    };
+    thread_local TwoHandCoupling g_twoHandCoupling{};
+    std::atomic<std::uintptr_t> g_loggedTwoHandProfile{};
 
     bool SelectIkProvider(std::uintptr_t provider) noexcept
     {
@@ -520,6 +529,46 @@ namespace
         matrix[11] = translated.z;
     }
 
+    bool HasActiveItemIkProfile(void* player) noexcept
+    {
+        if (!player)
+            return false;
+        constexpr std::ptrdiff_t kPlayerItemAccessorOffset = 10064;
+        constexpr std::ptrdiff_t kAccessorActiveProfileOffset = 32;
+        constexpr std::ptrdiff_t kProfilePrimaryIkOffset = 32;
+        constexpr std::ptrdiff_t kProfileSecondaryIkOffset = 40;
+        const auto accessor = *reinterpret_cast<const std::uintptr_t*>(
+            reinterpret_cast<std::uintptr_t>(player) +
+                kPlayerItemAccessorOffset);
+        if (!accessor)
+            return false;
+        const auto profile = *reinterpret_cast<const std::uintptr_t*>(
+            accessor + kAccessorActiveProfileOffset);
+        if (!profile)
+            return false;
+        const bool hasIk =
+            *reinterpret_cast<const std::uintptr_t*>(
+                profile + kProfilePrimaryIkOffset) ||
+            *reinterpret_cast<const std::uintptr_t*>(
+                profile + kProfileSecondaryIkOffset);
+        if (hasIk && g_loggedTwoHandProfile.exchange(profile,
+                std::memory_order_relaxed) != profile)
+        {
+            std::ostringstream message;
+            message << "Detected active item IK profile: player=" << player
+                << " accessor=" << reinterpret_cast<void*>(accessor)
+                << " profile=" << reinterpret_cast<void*>(profile)
+                << " primary_ik="
+                << *reinterpret_cast<void* const*>(
+                    profile + kProfilePrimaryIkOffset)
+                << " secondary_ik="
+                << *reinterpret_cast<void* const*>(
+                    profile + kProfileSecondaryIkOffset);
+            logging::Info(message.str());
+        }
+        return hasIk;
+    }
+
     bool ApplySingleArmIk(std::uintptr_t provider, bool rightArm) noexcept
     {
         const unsigned armSlot = rightArm ? 1u : 0u;
@@ -598,20 +647,22 @@ namespace
             controllerRelative.z, controllerRelative.w};
         const vr::pose::Quaternion controllerModelOrientation =
             (modelBasis * mappedControllerRelative).Normalized();
-        const vr::pose::Vec3 trackingDelta{
-            controller.positionX - hmd.x,
-            controller.positionY - hmd.y,
-            controller.positionZ - hmd.z};
-        const vr::pose::Vec3 controllerRelativePosition =
-            hmdQ.Inverse().Rotate(trackingDelta) * g_ikTargetScale;
         const auto mapToModelBasis = [&](const vr::pose::Vec3& value) noexcept
         {
             return right * value.x + up * value.y + forward * value.z;
         };
-        const vr::pose::Vec3 rawTargetPosition = headPosition +
-            mapToModelBasis(g_ikTargetOffset) +
-            mapToModelBasis({controllerRelativePosition.x,
-                controllerRelativePosition.y, -controllerRelativePosition.z});
+        const auto controllerTargetPosition =
+            [&](const dayz::stereo_state::ControllerPose& pose) noexcept
+        {
+            const vr::pose::Vec3 delta{pose.positionX - hmd.x,
+                pose.positionY - hmd.y, pose.positionZ - hmd.z};
+            const vr::pose::Vec3 relative =
+                hmdQ.Inverse().Rotate(delta) * g_ikTargetScale;
+            return headPosition + mapToModelBasis(g_ikTargetOffset) +
+                mapToModelBasis({relative.x, relative.y, -relative.z});
+        };
+        const vr::pose::Vec3 rawTargetPosition =
+            controllerTargetPosition(controller);
 
         vr::pose::TwoBoneChain chain{};
         chain.start.translation = Translation(armModel);
@@ -620,13 +671,70 @@ namespace
         chain.middle.rotation = Rotation(foreArmModel);
         chain.end.translation = Translation(handModel);
         chain.end.rotation = Rotation(handModel);
-        const vr::pose::Quaternion desiredDummyOrientation =
+        vr::pose::Quaternion desiredDummyOrientation =
             (controllerModelOrientation * g_gripRotationOffset).Normalized();
         const vr::pose::Vec3 desiredDummyPosition = rawTargetPosition +
             controllerModelOrientation.Rotate(g_gripToWristOffset);
         vr::pose::Quaternion desiredHandOrientation = desiredDummyOrientation;
         vr::pose::Vec3 desiredHandPosition = desiredDummyPosition;
-        if (handDummyModel)
+        if (rightArm && handDummyModel && g_currentSimulationPlayer &&
+            HasActiveItemIkProfile(g_currentSimulationPlayer))
+        {
+            const std::uint32_t leftHand = InternalBone(provider, kLeftHandBone);
+            const float* leftHandModel = leftHand == UINT32_MAX
+                ? nullptr : ModelTransform(provider, leftHand);
+            const dayz::stereo_state::ControllerPose leftController =
+                dayz::stereo_state::GetControllerPose(0);
+            if (leftHandModel && leftController.valid)
+            {
+                const vr::pose::Transform vanillaRightDummy{
+                    Translation(handDummyModel), Rotation(handDummyModel)};
+                const vr::pose::Transform vanillaLeftHand{
+                    Translation(leftHandModel), Rotation(leftHandModel)};
+                const vr::pose::Quaternion inverseRightDummy =
+                    vanillaRightDummy.rotation.Inverse();
+                g_twoHandCoupling.rightDummyToLeftHand.translation =
+                    inverseRightDummy.Rotate(vanillaLeftHand.translation -
+                        vanillaRightDummy.translation);
+                g_twoHandCoupling.rightDummyToLeftHand.rotation =
+                    (inverseRightDummy * vanillaLeftHand.rotation).Normalized();
+                const float gripSpan =
+                    g_twoHandCoupling.rightDummyToLeftHand.translation.Length();
+                g_twoHandCoupling.candidate =
+                    gripSpan >= 0.12f && gripSpan <= 0.90f;
+                if (g_twoHandCoupling.candidate)
+                {
+                    const vr::pose::Vec3 leftControllerTarget =
+                        controllerTargetPosition(leftController);
+                    const vr::pose::Vec3 authoredGripDirection =
+                        desiredDummyOrientation.Rotate(
+                            g_twoHandCoupling.rightDummyToLeftHand.translation);
+                    const vr::pose::Vec3 trackedGripDirection =
+                        leftControllerTarget - desiredDummyPosition;
+                    if (authoredGripDirection.LengthSquared() > 0.01f &&
+                        trackedGripDirection.LengthSquared() > 0.01f)
+                    {
+                        const vr::pose::Quaternion twoHandDirection =
+                            vr::pose::Quaternion::FromTo(authoredGripDirection,
+                                trackedGripDirection);
+                        const vr::pose::Quaternion weightedDirection =
+                            vr::pose::Quaternion::Slerp(
+                                vr::pose::Quaternion::Identity(),
+                                twoHandDirection, 0.85f);
+                        desiredDummyOrientation = (weightedDirection *
+                            desiredDummyOrientation).Normalized();
+                    }
+                }
+            }
+        }
+        if (!rightArm && g_twoHandCoupling.active)
+        {
+            desiredHandOrientation =
+                g_twoHandCoupling.leftHandTarget.rotation;
+            desiredHandPosition =
+                g_twoHandCoupling.leftHandTarget.translation;
+        }
+        else if (handDummyModel)
         {
             // The hand dummy is DayZ's item/grip socket. Preserve its
             // evaluated rigid offset from RightHand and solve the wrist pose that
@@ -739,6 +847,20 @@ namespace
         applyCorrections(modelTransforms);
         applyCorrections(skinningTransforms);
 
+        if (rightArm && g_twoHandCoupling.candidate && handDummyModel)
+        {
+            const vr::pose::Transform correctedRightDummy{
+                Translation(handDummyModel), Rotation(handDummyModel)};
+            g_twoHandCoupling.leftHandTarget.translation =
+                correctedRightDummy.translation +
+                correctedRightDummy.rotation.Rotate(
+                    g_twoHandCoupling.rightDummyToLeftHand.translation);
+            g_twoHandCoupling.leftHandTarget.rotation =
+                (correctedRightDummy.rotation *
+                    g_twoHandCoupling.rightDummyToLeftHand.rotation).Normalized();
+            g_twoHandCoupling.active = true;
+        }
+
         if (rightArm && g_currentSimulationPlayer && handDummyModel)
         {
             g_simulationSocketPose.player = g_currentSimulationPlayer;
@@ -793,6 +915,7 @@ namespace
         // right arm does not alter the left chain or the torso basis.
         *reinterpret_cast<std::uint8_t*>(provider + kProviderPoseDirtyOffset) = 1;
         rebuild(reinterpret_cast<void*>(provider));
+        g_twoHandCoupling = {};
         const bool rightSolved = ApplySingleArmIk(provider, true);
         const bool leftSolved = ApplySingleArmIk(provider, false);
         return rightSolved || leftSolved;
