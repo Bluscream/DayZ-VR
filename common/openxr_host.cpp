@@ -128,7 +128,7 @@ namespace
         // DayZ uses both polled gameplay input and its window-message input path.
         // SendInput covers the former; explicitly queueing the transition covers GUI
         // actions such as Escape and Inventory which can otherwise ignore injection.
-        const HWND window = GetForegroundWindow();
+        const HWND window = dayz::runtime_probe::RealForegroundWindow();
         DWORD processId{};
         if (window && GetWindowThreadProcessId(window, &processId) &&
             processId == GetCurrentProcessId())

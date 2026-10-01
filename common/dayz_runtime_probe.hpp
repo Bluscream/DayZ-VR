@@ -5,6 +5,7 @@
 struct ID3D11Device;
 struct ID3D11RenderTargetView;
 struct IDXGISwapChain;
+struct HWND__;
 
 namespace dayz::runtime_probe
 {
@@ -20,6 +21,9 @@ namespace dayz::runtime_probe
     bool RenderGuiQuad(ID3D11RenderTargetView* target, std::uint32_t width,
         std::uint32_t height) noexcept;
     bool IsActive() noexcept;
+    // The real foreground window even while [hooks] keep_focus makes the engine see
+    // the game window as always active. Use this for anything that injects input.
+    HWND__* RealForegroundWindow() noexcept;
 
     // Debug-plugin surface. These touch the same plain globals the render thread
     // reads; a torn read is impossible for the 4-byte values involved, but values

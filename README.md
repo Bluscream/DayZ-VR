@@ -63,6 +63,7 @@ The solution also includes `xr_probe.exe`, a standalone OpenXR/D3D11 diagnostic 
 - UI element sizing is currently derived from the frame height. With a square render resolution, interface elements may therefore appear much larger than expected.
 - DayZ must run in windowed mode so the render resolution can be changed in `\Documents\DayZ\DayZ.cfg` while testing. Close the game before editing the file, then set the desired window dimensions there and restart DayZ.
 - The physical system cursor is intentionally locked while the custom GUI cursor is active.
+- Head-look and controller input are injected with `SendInput`, so the DayZ window must have the real desktop focus for them to work. `[hooks] keep_focus` only stops the engine from throttling to ~20 fps while unfocused; it does not route input.
 - Do not combine this proxy with ReShade, Special K, or another local `dxgi.dll`; proxy chaining is not implemented.
 
 ## Requirements

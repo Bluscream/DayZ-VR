@@ -248,6 +248,19 @@ namespace
     using GetCursorInfoFn = BOOL(WINAPI*)(PCURSORINFO);
     GetCursorPosFn g_getCursorPos{};
     GetCursorInfoFn g_getCursorInfo{};
+    // [hooks] keep_focus: DayZ throttles rendering to ~20 fps when its window is not
+    // the foreground window, which in VR it rarely is. These trampolines let the
+    // engine see a permanently active window while the mod keeps asking the real one.
+    bool g_keepFocusEnabled{true};
+    using GetWindowFn = HWND(WINAPI*)();
+    GetWindowFn g_getForegroundWindow{};
+    GetWindowFn g_getActiveWindow{};
+    GetWindowFn g_getFocus{};
+
+    HWND RealForegroundWindowImpl() noexcept
+    {
+        return g_getForegroundWindow ? g_getForegroundWindow() : GetForegroundWindow();
+    }
     std::atomic_uint32_t g_guiNativeWidth{};
     std::atomic_uint32_t g_guiNativeHeight{};
     std::atomic_uint32_t g_guiBackWidth{};
@@ -2086,7 +2099,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     bool RawGuiCursorModeActive() noexcept
     {
         if (!g_guiMouseRemapEnabled || !g_gameWindow ||
-            GetForegroundWindow() != g_gameWindow)
+            RealForegroundWindowImpl() != g_gameWindow)
             return false;
         CURSORINFO info{};
         info.cbSize = sizeof(info);
@@ -2130,7 +2143,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         g_previousHmdYaw = yaw;
         g_previousHmdPitch = pitch;
 
-        if (!g_gameWindow || GetForegroundWindow() != g_gameWindow)
+        if (!g_gameWindow || RealForegroundWindowImpl() != g_gameWindow)
             return;
 
         g_pendingMouseX += static_cast<double>(yawDelta) * g_hmdMouseYawScale;
@@ -2273,6 +2286,28 @@ float4 PSMain(VertexOutput input) : SV_Target
     LRESULT CALLBACK HookedGameWindowProcedure(HWND window, UINT message, WPARAM wparam,
         LPARAM lparam)
     {
+        if (g_keepFocusEnabled)
+        {
+            // Deactivation notifications never reach the engine; it stays "active".
+            switch (message)
+            {
+            case WM_ACTIVATEAPP:
+                if (!wparam)
+                    return 0;
+                break;
+            case WM_ACTIVATE:
+                if (LOWORD(wparam) == WA_INACTIVE)
+                    return 0;
+                break;
+            case WM_KILLFOCUS:
+                return 0;
+            case WM_NCACTIVATE:
+                wparam = TRUE;
+                break;
+            default:
+                break;
+            }
+        }
         if (g_guiMouseRemapEnabled && HasMouseCoordinates(message))
         {
             POINT point{static_cast<SHORT>(LOWORD(lparam)),
@@ -2318,7 +2353,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     {
         const BOOL result = g_getCursorInfo(info);
         if (!result || !info || !g_guiMouseRemapEnabled || !g_gameWindow ||
-            !g_guiVirtualCursorActive.load() || GetForegroundWindow() != g_gameWindow ||
+            !g_guiVirtualCursorActive.load() || RealForegroundWindowImpl() != g_gameWindow ||
             !(info->flags & CURSOR_SHOWING))
             return result;
         POINT virtualPoint{g_guiVirtualCursorX.load(), g_guiVirtualCursorY.load()};
@@ -2354,6 +2389,61 @@ float4 PSMain(VertexOutput input) : SV_Target
             return;
         }
         logging::Info("GUI GetCursorPos/GetCursorInfo remap hooks active");
+    }
+
+    HWND WINAPI HookedGetForegroundWindow()
+    {
+        return g_keepFocusEnabled && g_gameWindow ? g_gameWindow : g_getForegroundWindow();
+    }
+
+    HWND WINAPI HookedGetActiveWindow()
+    {
+        return g_keepFocusEnabled && g_gameWindow ? g_gameWindow : g_getActiveWindow();
+    }
+
+    HWND WINAPI HookedGetFocus()
+    {
+        return g_keepFocusEnabled && g_gameWindow ? g_gameWindow : g_getFocus();
+    }
+
+    void InstallKeepFocusHooks() noexcept
+    {
+        if (!g_keepFocusEnabled || g_getForegroundWindow)
+            return;
+        HMODULE user32 = GetModuleHandleW(L"user32.dll");
+        if (!user32)
+            return;
+        struct Entry
+        {
+            const char* name;
+            void* detour;
+            GetWindowFn* original;
+        };
+        const Entry entries[]{
+            {"GetForegroundWindow", reinterpret_cast<void*>(HookedGetForegroundWindow), &g_getForegroundWindow},
+            {"GetActiveWindow", reinterpret_cast<void*>(HookedGetActiveWindow), &g_getActiveWindow},
+            {"GetFocus", reinterpret_cast<void*>(HookedGetFocus), &g_getFocus},
+        };
+        for (const Entry& entry : entries)
+        {
+            void* target = reinterpret_cast<void*>(GetProcAddress(user32, entry.name));
+            if (!target ||
+                MH_CreateHook(target, entry.detour, reinterpret_cast<void**>(entry.original)) != MH_OK ||
+                MH_EnableHook(target) != MH_OK)
+            {
+                logging::Error("Keep-focus hooks unavailable; DayZ will throttle when not in the foreground");
+                for (const Entry& installed : entries)
+                {
+                    void* installedTarget = reinterpret_cast<void*>(GetProcAddress(user32, installed.name));
+                    if (installedTarget)
+                        MH_DisableHook(installedTarget);
+                    *installed.original = nullptr;
+                }
+                g_keepFocusEnabled = false;
+                return;
+            }
+        }
+        logging::Info("Keep-focus hooks active: DayZ always sees its window as foreground");
     }
 
     void AttachGuiWindow(IDXGISwapChain* swapChain) noexcept
@@ -2399,7 +2489,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         constants.cursorPixelUv[0] = nativeWidth > 0.0f ? 1.0f / nativeWidth : 1.0f;
         constants.cursorPixelUv[1] = nativeHeight > 0.0f ? 1.0f / nativeHeight : 1.0f;
         if (!g_guiCursorEnabled || !g_gameWindow || nativeWidth <= 0.0f ||
-            nativeHeight <= 0.0f || GetForegroundWindow() != g_gameWindow)
+            nativeHeight <= 0.0f || RealForegroundWindowImpl() != g_gameWindow)
             return constants;
         CURSORINFO info{};
         info.cbSize = sizeof(info);
@@ -2694,6 +2784,8 @@ namespace dayz::runtime_probe
             return false;
         }
         InstallGuiMouseApiHook();
+        g_keepFocusEnabled = ReadBoolean(L"hooks", L"keep_focus", true);
+        InstallKeepFocusHooks();
         bool frameRefreshHookCreated{};
         if (g_hmdRotationEnabled)
         {
@@ -2970,11 +3062,16 @@ namespace dayz::runtime_probe
         return g_active.load(std::memory_order_relaxed);
     }
 
+    HWND__* RealForegroundWindow() noexcept
+    {
+        return RealForegroundWindowImpl();
+    }
+
     DebugSnapshot GetDebugSnapshot() noexcept
     {
         DebugSnapshot snapshot;
         snapshot.hooksActive = g_active.load(std::memory_order_relaxed);
-        snapshot.windowFocused = g_gameWindow && GetForegroundWindow() == g_gameWindow;
+        snapshot.windowFocused = g_gameWindow && RealForegroundWindowImpl() == g_gameWindow;
         snapshot.guiCursorMode = IsGuiCursorModeActive();
         snapshot.guiQuadVisible = IsGuiQuadVisible();
         snapshot.buildProfile = g_buildProfile ? g_buildProfile->name : "";
