@@ -2,6 +2,7 @@
 #include "dayz_build_profiles.hpp"
 #include "dayz_build_checks.hpp"
 #include "crash_report.hpp"
+#include "dayz_patches.hpp"
 
 #include "logging.hpp"
 #include "stereo_state.hpp"
@@ -1350,6 +1351,10 @@ float4 PSMain(VertexOutput input) : SV_Target
         std::uint8_t mode)
     {
         Record(EventKind::Execute, context, mode);
+        const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+        if (dayz::patches::SkipExecuteWithoutPreparedView(context, mode,
+                caller >= g_moduleBase && caller < g_moduleBase + kImageSize ? caller - g_moduleBase : 0))
+            return nullptr;
         return g_executeView(engine, context, mode);
     }
 
@@ -2748,6 +2753,7 @@ namespace dayz::runtime_probe
                  << " caller=DayZ+0x" << std::hex << event.callerRva;
             logging::Error(line.str());
         }
+        dayz::patches::DumpCounters();
     }
 
     bool Initialize() noexcept
@@ -2765,6 +2771,7 @@ namespace dayz::runtime_probe
             return false;
         }
         dayz::crash_report::Install(g_moduleBase, kImageSize, &DumpCrashContext);
+        dayz::patches::Initialize(ConfigurationFile().c_str());
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
         g_hmdRotationEnabled = ReadBoolean(L"stereo", L"hmd_rotation", true);
         g_hmdNativeAimEnabled = ReadBoolean(L"stereo", L"hmd_native_aim", true);
