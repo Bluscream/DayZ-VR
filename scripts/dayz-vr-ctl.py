@@ -62,6 +62,8 @@ def summary(state: dict[str, Any]) -> str:
         f"roll={degrees(state['hmd_roll']):6.1f} "
         f"pos=({state['hmd_position'][0]:.3f},{state['hmd_position'][1]:.3f},{state['hmd_position'][2]:.3f}) "
         f"mouse=({state['pending_mouse_x']:.1f},{state['pending_mouse_y']:.1f}) "
+        f"aimerr=({degrees(state.get('aim_yaw_error', 0.0)):+.1f},{degrees(state.get('aim_pitch_error', 0.0)):+.1f}) "
+        f"gain=({state.get('aim_yaw_gain', 0.0):.0f},{state.get('aim_pitch_gain', 0.0):.0f}) "
         f"aimR={'ok' if hand['aim_valid'] else '--'} presents={state['present_count']}"
     )
 

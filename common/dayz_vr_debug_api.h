@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define DAYZ_VR_DEBUG_API_VERSION 1u
+#define DAYZ_VR_DEBUG_API_VERSION 2u
 
 typedef struct DayzVrDebugHand
 {
@@ -66,6 +66,12 @@ typedef struct DayzVrDebugState
     float render_camera_direction[3];
     double pending_mouse_x;       /* queued synthetic mouse counts from head yaw */
     double pending_mouse_y;
+    /* Closed-loop head aim: remaining camera error (radians) and the learned
+       signed mouse counts per radian. Zero when the loop is off. */
+    float aim_yaw_error;
+    float aim_pitch_error;
+    float aim_yaw_gain;
+    float aim_pitch_gain;
 
     DayzVrDebugHand hands[2];     /* 0 left, 1 right */
 } DayzVrDebugState;

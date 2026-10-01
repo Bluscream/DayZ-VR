@@ -81,6 +81,10 @@ namespace
         state.stereo_apply_count = probe.stereoApplyCount;
         state.pending_mouse_x = probe.pendingMouseX;
         state.pending_mouse_y = probe.pendingMouseY;
+        state.aim_yaw_error = probe.aimYawError;
+        state.aim_pitch_error = probe.aimPitchError;
+        state.aim_yaw_gain = probe.aimYawGain;
+        state.aim_pitch_gain = probe.aimPitchGain;
         state.rendered_eye = dayz::stereo_state::RenderedEye();
 
         const auto host = OpenXrHost::Instance().GetDebugSnapshot();

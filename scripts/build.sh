@@ -93,6 +93,7 @@ step_test() {
   mkdir -p "$log_dir"
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion'
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
+  run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
     run_in_container "g++ $gpp_flags -Icommon tests/build_checks.cpp -o build/build_checks && ./build/build_checks build/dayz-image.bin" 2>&1 | tee "$log_dir/test-build-checks.log"
   else

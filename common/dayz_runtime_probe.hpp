@@ -39,6 +39,10 @@ namespace dayz::runtime_probe
         std::uint64_t stereoApplyCount{};
         double pendingMouseX{};
         double pendingMouseY{};
+        float aimYawError{};
+        float aimPitchError{};
+        float aimYawGain{};
+        float aimPitchGain{};
     };
     DebugSnapshot GetDebugSnapshot() noexcept;
     // Tunable names are "section.key" as in dayz_openxr.ini. Booleans use 0/1.

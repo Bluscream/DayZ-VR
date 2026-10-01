@@ -166,6 +166,10 @@ namespace dayz::debug_protocol
         out += ',';
         AppendField(out, "pending_mouse_x", state.pending_mouse_x);
         AppendField(out, "pending_mouse_y", state.pending_mouse_y);
+        AppendField(out, "aim_yaw_error", state.aim_yaw_error);
+        AppendField(out, "aim_pitch_error", state.aim_pitch_error);
+        AppendField(out, "aim_yaw_gain", state.aim_yaw_gain);
+        AppendField(out, "aim_pitch_gain", state.aim_pitch_gain);
         AppendHand(out, "left_hand", state.hands[0]);
         AppendHand(out, "right_hand", state.hands[1]);
         out.back() = '}';
