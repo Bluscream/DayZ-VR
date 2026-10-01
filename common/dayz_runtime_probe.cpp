@@ -2,6 +2,7 @@
 #include "dayz_build_profiles.hpp"
 #include "dayz_build_checks.hpp"
 #include "crash_report.hpp"
+#include "dayz_hotkeys.hpp"
 #include "dayz_patches.hpp"
 
 #include "logging.hpp"
@@ -184,6 +185,10 @@ namespace
     bool g_hmdNativeAimEnabled{true};
     float g_hmdMouseYawScale{-600.0f};
     float g_hmdMousePitchScale{-600.0f};
+    // Locked axes never reach DayZ's mouse camera; the render camera still
+    // follows the HMD on them so the view moves while the aim stays put.
+    bool g_lockHmdYaw{};
+    bool g_lockHmdPitch{};
     bool g_haveNativeHmdAngles{};
     float g_previousHmdYaw{};
     float g_previousHmdPitch{};
@@ -954,6 +959,27 @@ float4 PSMain(VertexOutput input) : SV_Target
             base.right.z * value.x + base.up.z * value.y - base.forward.z * value.z};
     }
 
+    // Rebuilds the HMD rotation from the yaw/pitch/roll decomposition used by
+    // UpdateNativeHmdAim, keeping roll and only the axes DayZ does not receive.
+    Quaternion RenderOnlyRotation(const Quaternion& relative, bool keepYaw,
+        bool keepPitch) noexcept
+    {
+        const float yaw = keepYaw ? std::atan2(
+            2.0f * (relative.w * relative.y + relative.x * relative.z),
+            1.0f - 2.0f * (relative.x * relative.x + relative.y * relative.y)) : 0.0f;
+        const float pitch = keepPitch ? std::asin((std::clamp)(
+            2.0f * (relative.w * relative.x - relative.z * relative.y), -1.0f, 1.0f)) : 0.0f;
+        const float roll = std::atan2(
+            2.0f * (relative.w * relative.z + relative.x * relative.y),
+            1.0f - 2.0f * (relative.x * relative.x + relative.z * relative.z));
+        const Quaternion yawRotation{0.0f, std::sin(yaw * 0.5f), 0.0f, std::cos(yaw * 0.5f)};
+        const Quaternion pitchRotation{std::sin(pitch * 0.5f), 0.0f, 0.0f,
+            std::cos(pitch * 0.5f)};
+        const Quaternion rollRotation{0.0f, 0.0f, std::sin(roll * 0.5f),
+            std::cos(roll * 0.5f)};
+        return Normalize(Multiply(Multiply(yawRotation, pitchRotation), rollRotation));
+    }
+
     void ApplyHmdRotationToCamera(OpaqueCamera* camera) noexcept
     {
         if (!g_hmdRotationEnabled)
@@ -1012,11 +1038,9 @@ float4 PSMain(VertexOutput input) : SV_Target
             // DayZ receives HMD yaw/pitch through its native mouse path so all
             // gameplay systems share them. Only roll remains a render-space
             // transform because a conventional mouse camera has no roll axis.
-            const float roll = std::atan2(
-                2.0f * (relative.w * relative.z + relative.x * relative.y),
-                1.0f - 2.0f * (relative.x * relative.x + relative.z * relative.z));
-            const float halfRoll = roll * 0.5f;
-            renderRotation = {0.0f, 0.0f, std::sin(halfRoll), std::cos(halfRoll)};
+            // A locked axis stays on the render side instead, so the head still
+            // looks around that axis while DayZ's aim direction ignores it.
+            renderRotation = RenderOnlyRotation(relative, g_lockHmdYaw, g_lockHmdPitch);
         }
         const auto address = reinterpret_cast<std::uintptr_t>(camera);
         CameraBasis gameBasis{};
@@ -2152,8 +2176,10 @@ float4 PSMain(VertexOutput input) : SV_Target
         if (!g_gameWindow || RealForegroundWindowImpl() != g_gameWindow)
             return;
 
-        g_pendingMouseX += static_cast<double>(yawDelta) * g_hmdMouseYawScale;
-        g_pendingMouseY += static_cast<double>(pitchDelta) * g_hmdMousePitchScale;
+        if (!g_lockHmdYaw)
+            g_pendingMouseX += static_cast<double>(yawDelta) * g_hmdMouseYawScale;
+        if (!g_lockHmdPitch)
+            g_pendingMouseY += static_cast<double>(pitchDelta) * g_hmdMousePitchScale;
         if (IsGuiCursorModeActive())
         {
             // DayZ blocks gameplay mouse-look while the inventory owns input.
@@ -2772,11 +2798,14 @@ namespace dayz::runtime_probe
         }
         dayz::crash_report::Install(g_moduleBase, kImageSize, &DumpCrashContext);
         dayz::patches::Initialize(ConfigurationFile().c_str());
+        dayz::hotkeys::Initialize(ConfigurationFile().c_str());
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
         g_hmdRotationEnabled = ReadBoolean(L"stereo", L"hmd_rotation", true);
         g_hmdNativeAimEnabled = ReadBoolean(L"stereo", L"hmd_native_aim", true);
         g_hmdMouseYawScale = ReadFloat(L"stereo", L"hmd_mouse_yaw_scale", -600.0f);
         g_hmdMousePitchScale = ReadFloat(L"stereo", L"hmd_mouse_pitch_scale", -600.0f);
+        g_lockHmdYaw = ReadBoolean(L"stereo", L"lock_yaw", false);
+        g_lockHmdPitch = ReadBoolean(L"stereo", L"lock_pitch", false);
         g_cameraSeparation = ReadFloat(L"stereo", L"camera_separation", 0.064f);
         g_hmdPositionScale = ReadFloat(L"stereo", L"hmd_position_scale", 1.0f);
         g_gameFov = (std::clamp)(ReadFloat(L"stereo", L"game_fov", 0.0f), 0.0f, 2.8f);
@@ -2934,6 +2963,7 @@ namespace dayz::runtime_probe
                 << " game_fov=" << g_gameFov
                 << " hmd_mouse_scale=" << g_hmdMouseYawScale << ','
                 << g_hmdMousePitchScale
+                << " lock_yaw=" << g_lockHmdYaw << " lock_pitch=" << g_lockHmdPitch
                 << " fit_mode=" << fitModeName
                 << " scale=" << scaleX << 'x' << scaleY
                 << " hud_scale_override=" << g_overrideHudScale
@@ -2985,6 +3015,7 @@ namespace dayz::runtime_probe
         }
         ApplyProfileFovOverride();
         ApplyActiveCameraFovOverride();
+        dayz::hotkeys::Poll();
         UpdateNativeHmdAim();
         if (!IsGuiCursorModeActive())
             ResetInventoryPreviewAnchor();
@@ -3139,6 +3170,8 @@ namespace dayz::runtime_probe
             {"stereo.hud_scale", TunableKind::Float, &g_hudScale, 0.05f, 1.0f},
             {"stereo.alternate_eye", TunableKind::Bool, &g_alternateEyeEnabled, 0.0f, 1.0f},
             {"stereo.hmd_native_aim", TunableKind::Bool, &g_hmdNativeAimEnabled, 0.0f, 1.0f},
+            {"stereo.lock_yaw", TunableKind::Bool, &g_lockHmdYaw, 0.0f, 1.0f},
+            {"stereo.lock_pitch", TunableKind::Bool, &g_lockHmdPitch, 0.0f, 1.0f},
             {"stereo.override_hud_scale", TunableKind::Bool, &g_overrideHudScale, 0.0f, 1.0f},
             {"stereo.image_shift", TunableKind::ImageShift, nullptr, -1.0f, 1.0f},
             {"stereo.scale_x", TunableKind::ScaleX, nullptr, 0.1f, 4.0f},

@@ -160,6 +160,8 @@ scripts/dayz-vr-ctl.py set stereo.hmd_mouse_yaw_scale -300
 scripts/dayz-vr-ctl.py recenter                      # recapture HMD yaw and position centre
 ```
 
+`[stereo] lock_yaw` / `lock_pitch` stop the HMD from driving DayZ's mouse camera on that axis while the rendered view still follows your head, so you can keep the aim level and look around freely. `[hotkeys] recenter` (default `F9`, modifiers like `ctrl+alt+F9` allowed, empty disables) does the same as the `recenter` command without the debug plugin.
+
 Tunables are the `[stereo]` and `[gui]` keys the render path reads every frame; keys consumed only at hook installation (`runtime_probe`, HUD safe area, resolution override) still need a restart. A value set this way lasts until the game exits; copy it into the ini to keep it. The protocol is one command per line with one JSON line back (`get`, `tunables`, `set <name> <value>`, `recenter`, `ping`); any client that can open a TCP socket works.
 
 ## Uninstallation
