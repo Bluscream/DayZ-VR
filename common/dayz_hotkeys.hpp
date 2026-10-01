@@ -10,6 +10,9 @@
 // F1..F24, A..Z, 0..9, numpad0..numpad9, home, end, insert, delete, pageup,
 // pagedown, pause, scrolllock, backspace, tab, space, enter, escape, or a raw
 // virtual-key code as 0x.. hex. An empty value disables the hotkey.
+//
+// toggle1..toggle8 flip a boolean tunable: "F10 stereo.lock_pitch" (key, space,
+// tunable name as listed by the debug plugin).
 namespace dayz::hotkeys
 {
     struct Binding

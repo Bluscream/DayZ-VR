@@ -120,6 +120,7 @@ private:
     XrAction aButtonAction_{XR_NULL_HANDLE};
     XrAction bButtonAction_{XR_NULL_HANDLE};
     XrAction thumbstickAction_{XR_NULL_HANDLE};
+    XrAction thumbstickClickAction_{XR_NULL_HANDLE};
     std::array<XrPath, 2> handPaths_{{XR_NULL_PATH, XR_NULL_PATH}};
     std::array<XrSpace, 2> gripSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
     std::array<XrSpace, 2> aimSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
@@ -156,6 +157,8 @@ private:
     bool leftMouseDown_{};
     bool rightMouseDown_{};
     bool xKeyDown_{};
+    bool recenterOnStickClick_{true};
+    bool leftStickClickDown_{};
     bool yKeyDown_{};
     bool escapeKeyDown_{};
     bool tabKeyDown_{};

@@ -112,6 +112,74 @@ namespace dayz::hotkeys
             return binding;
         }
 
+        constexpr std::size_t kToggleSlots = 8;
+        struct Toggle
+        {
+            Binding binding;
+            std::string tunable;
+            bool wasDown{};
+        };
+        Toggle g_toggles[kToggleSlots]{};
+
+        std::string Narrow(const std::wstring& text)
+        {
+            return std::string(text.begin(), text.end());
+        }
+
+        void ReadToggle(const wchar_t* iniPath, std::size_t slot) noexcept
+        {
+            wchar_t key[16]{};
+            swprintf_s(key, L"toggle%u", static_cast<unsigned>(slot + 1));
+            wchar_t value[96]{};
+            GetPrivateProfileStringW(L"hotkeys", key, L"", value,
+                static_cast<DWORD>(std::size(value)), iniPath);
+            Toggle& toggle = g_toggles[slot];
+            toggle = {};
+            const std::wstring text(value);
+            if (text.empty())
+                return;
+            const std::size_t space = text.find_first_of(L" \t");
+            if (space == std::wstring::npos || !ParseBinding(text.substr(0, space).c_str(), toggle.binding) ||
+                !toggle.binding.Enabled())
+            {
+                logging::Error("Hotkey " + Narrow(key) + " ignored: expected '<key> <section.key>', got '" +
+                    Narrow(text) + "'");
+                toggle = {};
+                return;
+            }
+            const std::size_t nameStart = text.find_first_not_of(L" \t", space);
+            toggle.tunable = nameStart == std::wstring::npos ? std::string{} : Narrow(text.substr(nameStart));
+            double current{};
+            if (toggle.tunable.empty() || !dayz::runtime_probe::GetTunable(toggle.tunable.c_str(), current))
+            {
+                logging::Error("Hotkey " + Narrow(key) + " ignored: unknown tunable '" + toggle.tunable + "'");
+                toggle = {};
+                return;
+            }
+            logging::Info("Hotkeys: " + Narrow(key) + " toggles " + toggle.tunable);
+        }
+
+        void PollToggles(bool foreground) noexcept
+        {
+            for (Toggle& toggle : g_toggles)
+            {
+                if (!toggle.binding.Enabled())
+                    continue;
+                const bool down = foreground && BindingDown(toggle.binding);
+                if (down && !toggle.wasDown)
+                {
+                    double current{};
+                    if (dayz::runtime_probe::GetTunable(toggle.tunable.c_str(), current))
+                    {
+                        const double next = current != 0.0 ? 0.0 : 1.0;
+                        dayz::runtime_probe::SetTunable(toggle.tunable.c_str(), next);
+                        logging::Info("Hotkey toggled " + toggle.tunable + " -> " + (next != 0.0 ? "on" : "off"));
+                    }
+                }
+                toggle.wasDown = down;
+            }
+        }
+
         bool GameWindowForeground() noexcept
         {
             const HWND window = dayz::runtime_probe::RealForegroundWindow();
@@ -175,13 +243,17 @@ namespace dayz::hotkeys
                 (g_recenter.shift ? " +shift" : ""));
         else
             logging::Info("Hotkeys: recenter unbound");
+        for (std::size_t slot = 0; slot < kToggleSlots; ++slot)
+            ReadToggle(iniPath, slot);
     }
 
     void Poll() noexcept
     {
+        const bool foreground = GameWindowForeground();
+        PollToggles(foreground);
         if (!g_recenter.Enabled())
             return;
-        const bool down = GameWindowForeground() && BindingDown(g_recenter);
+        const bool down = foreground && BindingDown(g_recenter);
         if (down && !g_recenterWasDown)
         {
             dayz::runtime_probe::RecenterHmd();

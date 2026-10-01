@@ -358,7 +358,9 @@ bool OpenXrHost::CreateControllerActions()
         !createAction("b_button", "Jump", XR_ACTION_TYPE_BOOLEAN_INPUT,
             bButtonAction_) ||
         !createAction("thumbstick", "Thumbstick", XR_ACTION_TYPE_VECTOR2F_INPUT,
-            thumbstickAction_))
+            thumbstickAction_) ||
+        !createAction("thumbstick_click", "Thumbstick Click", XR_ACTION_TYPE_BOOLEAN_INPUT,
+            thumbstickClickAction_))
         return false;
 
     const auto path = [&](const char* text) {
@@ -390,7 +392,9 @@ bool OpenXrHost::CreateControllerActions()
         {aButtonAction_, path("/user/hand/right/input/a/click")},
         {bButtonAction_, path("/user/hand/right/input/b/click")},
         {thumbstickAction_, path("/user/hand/left/input/thumbstick")},
-        {thumbstickAction_, path("/user/hand/right/input/thumbstick")}});
+        {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
+        {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
+        {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
     suggest("/interaction_profiles/valve/index_controller", {
         {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
@@ -405,7 +409,9 @@ bool OpenXrHost::CreateControllerActions()
         {aButtonAction_, path("/user/hand/right/input/a/click")},
         {bButtonAction_, path("/user/hand/right/input/b/click")},
         {thumbstickAction_, path("/user/hand/left/input/thumbstick")},
-        {thumbstickAction_, path("/user/hand/right/input/thumbstick")}});
+        {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
+        {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
+        {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
     const auto suggestXyController = [&](const char* profile) {
         suggest(profile, {
             {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
@@ -421,7 +427,9 @@ bool OpenXrHost::CreateControllerActions()
             {aButtonAction_, path("/user/hand/right/input/a/click")},
             {bButtonAction_, path("/user/hand/right/input/b/click")},
             {thumbstickAction_, path("/user/hand/left/input/thumbstick")},
-            {thumbstickAction_, path("/user/hand/right/input/thumbstick")}});
+            {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
+        {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
+        {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
     };
     suggestXyController("/interaction_profiles/facebook/touch_controller_pro");
     suggestXyController("/interaction_profiles/meta/touch_controller_plus");
@@ -704,6 +712,7 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     directionRayThickness_ = (std::clamp)(ReadFloat(L"controls",
         L"direction_ray_thickness", 0.006f), 0.001f, 0.03f);
     controllerTurnScale_ = ReadFloat(L"controls", L"turn_scale", 18.0f);
+    recenterOnStickClick_ = ReadBoolean(L"controls", L"recenter_stick_click", true);
     dayz::comfort::Initialize(ConfigurationPath().c_str());
     controllerTurnRate_ = (std::clamp)(ReadFloat(L"controls", L"turn_rate", 90.0f), 0.0f, 720.0f);
     controllerSnapTurn_ = (std::clamp)(ReadFloat(L"controls", L"snap_turn", 0.0f), 0.0f, 180.0f);
@@ -1000,6 +1009,17 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     const XrActionStateFloat leftTriggerState = floatState(triggerAction_, 0);
     const XrActionStateFloat rightTriggerState = floatState(triggerAction_, 1);
     const bool xDown = xState.isActive && xState.currentState;
+    if (recenterOnStickClick_)
+    {
+        const XrActionStateBoolean clickState = booleanState(thumbstickClickAction_, 0);
+        const bool clickDown = clickState.isActive && clickState.currentState;
+        if (clickDown && !leftStickClickDown_)
+        {
+            dayz::runtime_probe::RecenterHmd();
+            logging::Info("controller left stick click -> recenter");
+        }
+        leftStickClickDown_ = clickDown;
+    }
     const bool yDown = yState.isActive && yState.currentState;
     const bool leftGrabDown = leftGrabState.isActive && leftGrabState.currentState > 0.55f;
     const bool rightGrabDown = rightGrabState.isActive && rightGrabState.currentState > 0.55f;
