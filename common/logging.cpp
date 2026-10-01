@@ -12,7 +12,6 @@ namespace
 {
     std::mutex g_mutex;
     std::ofstream g_stream;
-    XrInstance g_instance = XR_NULL_HANDLE;
 
     std::string Timestamp()
     {

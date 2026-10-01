@@ -204,7 +204,7 @@ bool OpenXrHost::CreateInstanceAndSystem()
 
     const char* enabledExtensions[] = { XR_KHR_D3D11_ENABLE_EXTENSION_NAME };
     logging::Info("Creating OpenXR instance");
-    XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
+    XrInstanceCreateInfo createInfo(MakeXr<XrInstanceCreateInfo>(XR_TYPE_INSTANCE_CREATE_INFO));
     strcpy_s(createInfo.applicationInfo.applicationName, "DayZ OpenXR");
     createInfo.applicationInfo.applicationVersion = 1;
     strcpy_s(createInfo.applicationInfo.engineName, "DayZ VR Mod");
@@ -216,7 +216,7 @@ bool OpenXrHost::CreateInstanceAndSystem()
         return false;
 
     logging::Info("Requesting HMD system");
-    XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
+    XrSystemGetInfo systemInfo(MakeXr<XrSystemGetInfo>(XR_TYPE_SYSTEM_GET_INFO));
     systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     if (!Check(xrGetSystem(instance_, &systemInfo, &systemId_), "xrGetSystem"))
         return false;
@@ -232,7 +232,7 @@ bool OpenXrHost::CreateInstanceAndSystem()
 
 bool OpenXrHost::ValidateDevice(ID3D11Device* device)
 {
-    XrGraphicsRequirementsD3D11KHR requirements{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
+    XrGraphicsRequirementsD3D11KHR requirements(MakeXr<XrGraphicsRequirementsD3D11KHR>(XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR));
     if (!Check(getD3D11Requirements_(instance_, systemId_, &requirements),
         "xrGetD3D11GraphicsRequirementsKHR"))
         return false;
@@ -257,7 +257,7 @@ bool OpenXrHost::ValidateDevice(ID3D11Device* device)
 bool OpenXrHost::CreateCompatibleDevice()
 {
     logging::Info("Reading OpenXR D3D11 graphics requirements");
-    XrGraphicsRequirementsD3D11KHR requirements{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
+    XrGraphicsRequirementsD3D11KHR requirements(MakeXr<XrGraphicsRequirementsD3D11KHR>(XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR));
     if (!Check(getD3D11Requirements_(instance_, systemId_, &requirements),
         "xrGetD3D11GraphicsRequirementsKHR"))
         return false;
@@ -305,9 +305,9 @@ bool OpenXrHost::CreateCompatibleDevice()
 
 bool OpenXrHost::CreateSession()
 {
-    XrGraphicsBindingD3D11KHR binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
+    XrGraphicsBindingD3D11KHR binding(MakeXr<XrGraphicsBindingD3D11KHR>(XR_TYPE_GRAPHICS_BINDING_D3D11_KHR));
     binding.device = device_.Get();
-    XrSessionCreateInfo sessionInfo{XR_TYPE_SESSION_CREATE_INFO};
+    XrSessionCreateInfo sessionInfo(MakeXr<XrSessionCreateInfo>(XR_TYPE_SESSION_CREATE_INFO));
     sessionInfo.next = &binding;
     sessionInfo.systemId = systemId_;
     return Check(xrCreateSession(instance_, &sessionInfo, &session_), "xrCreateSession");
@@ -317,7 +317,7 @@ bool OpenXrHost::CreateControllerActions()
 {
     if (!controllerInputEnabled_)
         return true;
-    XrActionSetCreateInfo setInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
+    XrActionSetCreateInfo setInfo(MakeXr<XrActionSetCreateInfo>(XR_TYPE_ACTION_SET_CREATE_INFO));
     strcpy_s(setInfo.actionSetName, "dayz_vr_controls");
     strcpy_s(setInfo.localizedActionSetName, "DayZ VR Controls");
     setInfo.priority = 0;
@@ -331,7 +331,7 @@ bool OpenXrHost::CreateControllerActions()
 
     const auto createAction = [&](const char* name, const char* localized,
         XrActionType type, XrAction& action) {
-        XrActionCreateInfo info{XR_TYPE_ACTION_CREATE_INFO};
+        XrActionCreateInfo info(MakeXr<XrActionCreateInfo>(XR_TYPE_ACTION_CREATE_INFO));
         strcpy_s(info.actionName, name);
         strcpy_s(info.localizedActionName, localized);
         info.actionType = type;
@@ -366,8 +366,7 @@ bool OpenXrHost::CreateControllerActions()
     };
     const auto suggest = [&](const char* profile,
         const std::vector<XrActionSuggestedBinding>& bindings) {
-        XrInteractionProfileSuggestedBinding info{
-            XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+        XrInteractionProfileSuggestedBinding info(MakeXr<XrInteractionProfileSuggestedBinding>(XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING));
         info.interactionProfile = path(profile);
         info.countSuggestedBindings = static_cast<std::uint32_t>(bindings.size());
         info.suggestedBindings = bindings.data();
@@ -428,14 +427,14 @@ bool OpenXrHost::CreateControllerActions()
     suggestXyController("/interaction_profiles/htc/vive_cosmos_controller");
     suggestXyController("/interaction_profiles/hp/mixed_reality_controller");
 
-    XrSessionActionSetsAttachInfo attach{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
+    XrSessionActionSetsAttachInfo attach(MakeXr<XrSessionActionSetsAttachInfo>(XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO));
     attach.countActionSets = 1;
     attach.actionSets = &actionSet_;
     if (!Check(xrAttachSessionActionSets(session_, &attach), "xrAttachSessionActionSets"))
         return false;
     for (std::size_t hand = 0; hand < handPaths_.size(); ++hand)
     {
-        XrActionSpaceCreateInfo spaceInfo{XR_TYPE_ACTION_SPACE_CREATE_INFO};
+        XrActionSpaceCreateInfo spaceInfo(MakeXr<XrActionSpaceCreateInfo>(XR_TYPE_ACTION_SPACE_CREATE_INFO));
         spaceInfo.poseInActionSpace.orientation.w = 1.0f;
         spaceInfo.subactionPath = handPaths_[hand];
         spaceInfo.action = gripPoseAction_;
@@ -453,7 +452,7 @@ bool OpenXrHost::CreateControllerActions()
 
 bool OpenXrHost::CreateSpaces()
 {
-    XrReferenceSpaceCreateInfo info{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+    XrReferenceSpaceCreateInfo info(MakeXr<XrReferenceSpaceCreateInfo>(XR_TYPE_REFERENCE_SPACE_CREATE_INFO));
     info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
     info.poseInReferenceSpace.orientation.w = 1.0f;
     if (!Check(xrCreateReferenceSpace(session_, &info, &localSpace_), "xrCreateReferenceSpace(local)"))
@@ -509,7 +508,7 @@ bool OpenXrHost::CreateSwapchains()
         logging::Info(eye == 0 ? "Creating left-eye swapchain" : "Creating right-eye swapchain");
         swapchain.width = configs[eye].recommendedImageRectWidth;
         swapchain.height = configs[eye].recommendedImageRectHeight;
-        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        XrSwapchainCreateInfo info(MakeXr<XrSwapchainCreateInfo>(XR_TYPE_SWAPCHAIN_CREATE_INFO));
         info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         info.format = selected;
         info.sampleCount = 1;
@@ -594,7 +593,7 @@ bool OpenXrHost::CreateGuiSwapchain(const std::vector<std::int64_t>& formats)
         512u, 4096u);
     guiSwapchain_.height = (std::clamp)(ReadUnsigned(L"gui", L"quad_pixel_height", 1400),
         512u, 4096u);
-    XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    XrSwapchainCreateInfo info(MakeXr<XrSwapchainCreateInfo>(XR_TYPE_SWAPCHAIN_CREATE_INFO));
     info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
     info.format = selected;
     info.sampleCount = 1;
@@ -645,7 +644,7 @@ bool OpenXrHost::CreateAxisSwapchain(const std::vector<std::int64_t>& formats)
     if (std::find(formats.begin(), formats.end(), static_cast<std::int64_t>(format)) ==
         formats.end())
         return false;
-    XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    XrSwapchainCreateInfo info(MakeXr<XrSwapchainCreateInfo>(XR_TYPE_SWAPCHAIN_CREATE_INFO));
     info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
     info.format = format;
     info.sampleCount = 1;
@@ -771,7 +770,7 @@ bool OpenXrHost::InitializeStandalone() noexcept
 
 void OpenXrHost::PollEvents()
 {
-    XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
+    XrEventDataBuffer event(MakeXr<XrEventDataBuffer>(XR_TYPE_EVENT_DATA_BUFFER));
     while (xrPollEvent(instance_, &event) == XR_SUCCESS)
     {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED)
@@ -783,7 +782,7 @@ void OpenXrHost::PollEvents()
             logging::Info(message.str());
             if (sessionState_ == XR_SESSION_STATE_READY && !sessionRunning_)
             {
-                XrSessionBeginInfo begin{XR_TYPE_SESSION_BEGIN_INFO};
+                XrSessionBeginInfo begin(MakeXr<XrSessionBeginInfo>(XR_TYPE_SESSION_BEGIN_INFO));
                 begin.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
                 sessionRunning_ = Check(xrBeginSession(session_, &begin), "xrBeginSession");
             }
@@ -797,7 +796,7 @@ void OpenXrHost::PollEvents()
                 sessionState_ == XR_SESSION_STATE_LOSS_PENDING)
                 shouldExit_ = true;
         }
-        event = {XR_TYPE_EVENT_DATA_BUFFER};
+        event = (MakeXr<XrEventDataBuffer>(XR_TYPE_EVENT_DATA_BUFFER));
     }
 }
 
@@ -888,13 +887,13 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     if (!controllerInputEnabled_ || actionSet_ == XR_NULL_HANDLE)
         return;
     XrActiveActionSet active{actionSet_, XR_NULL_PATH};
-    XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};
+    XrActionsSyncInfo sync(MakeXr<XrActionsSyncInfo>(XR_TYPE_ACTIONS_SYNC_INFO));
     sync.countActiveActionSets = 1;
     sync.activeActionSets = &active;
     if (!Check(xrSyncActions(session_, &sync), "xrSyncActions"))
         return;
     static XrPath loggedInteractionProfile{XR_NULL_PATH};
-    XrInteractionProfileState interaction{XR_TYPE_INTERACTION_PROFILE_STATE};
+    XrInteractionProfileState interaction(MakeXr<XrInteractionProfileState>(XR_TYPE_INTERACTION_PROFILE_STATE));
     if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(session_, handPaths_[0], &interaction)) &&
         interaction.interactionProfile != XR_NULL_PATH &&
         interaction.interactionProfile != loggedInteractionProfile)
@@ -910,8 +909,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     }
     for (std::size_t hand = 0; hand < handPaths_.size(); ++hand)
     {
-        gripLocations_[hand] = {XR_TYPE_SPACE_LOCATION};
-        aimLocations_[hand] = {XR_TYPE_SPACE_LOCATION};
+        gripLocations_[hand] = (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION));
+        aimLocations_[hand] = (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION));
         xrLocateSpace(gripSpaces_[hand], localSpace_, displayTime, &gripLocations_[hand]);
         xrLocateSpace(aimSpaces_[hand], localSpace_, displayTime, &aimLocations_[hand]);
     }
@@ -920,8 +919,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     return;
 #endif
     const auto vectorState = [&](std::size_t hand) {
-        XrActionStateVector2f state{XR_TYPE_ACTION_STATE_VECTOR2F};
-        XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
+        XrActionStateVector2f state(MakeXr<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F));
+        XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
         get.action = thumbstickAction_;
         get.subactionPath = handPaths_[hand];
         xrGetActionStateVector2f(session_, &get, &state);
@@ -943,8 +942,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
         SendMouseTurn(static_cast<LONG>(std::lround(rightStick.x * controllerTurnScale_)));
 
     const auto booleanState = [&](XrAction action, std::size_t hand) {
-        XrActionStateBoolean state{XR_TYPE_ACTION_STATE_BOOLEAN};
-        XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
+        XrActionStateBoolean state(MakeXr<XrActionStateBoolean>(XR_TYPE_ACTION_STATE_BOOLEAN));
+        XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
         get.action = action;
         get.subactionPath = handPaths_[hand];
         xrGetActionStateBoolean(session_, &get, &state);
@@ -955,8 +954,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     const XrActionStateBoolean aState = booleanState(aButtonAction_, 1);
     const XrActionStateBoolean bState = booleanState(bButtonAction_, 1);
     const auto floatState = [&](XrAction action, std::size_t hand) {
-        XrActionStateFloat state{XR_TYPE_ACTION_STATE_FLOAT};
-        XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
+        XrActionStateFloat state(MakeXr<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT));
+        XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
         get.action = action;
         get.subactionPath = handPaths_[hand];
         xrGetActionStateFloat(session_, &get, &state);
@@ -1108,20 +1107,20 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
 
 void OpenXrHost::RenderFrame()
 {
-    XrFrameWaitInfo waitInfo{XR_TYPE_FRAME_WAIT_INFO};
-    XrFrameState frameState{XR_TYPE_FRAME_STATE};
+    XrFrameWaitInfo waitInfo(MakeXr<XrFrameWaitInfo>(XR_TYPE_FRAME_WAIT_INFO));
+    XrFrameState frameState(MakeXr<XrFrameState>(XR_TYPE_FRAME_STATE));
     if (!Check(xrWaitFrame(session_, &waitInfo, &frameState), "xrWaitFrame"))
         return;
-    XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+    XrFrameBeginInfo beginInfo(MakeXr<XrFrameBeginInfo>(XR_TYPE_FRAME_BEGIN_INFO));
     if (!Check(xrBeginFrame(session_, &beginInfo), "xrBeginFrame"))
         return;
 
     std::array<XrCompositionLayerProjectionView, 2> projectionViews{{
-        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
-        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}}};
+        (MakeXr<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW)),
+        (MakeXr<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW))}};
     std::uint32_t viewCount{};
-    XrViewState viewState{XR_TYPE_VIEW_STATE};
-    XrViewLocateInfo locate{XR_TYPE_VIEW_LOCATE_INFO};
+    XrViewState viewState(MakeXr<XrViewState>(XR_TYPE_VIEW_STATE));
+    XrViewLocateInfo locate(MakeXr<XrViewLocateInfo>(XR_TYPE_VIEW_LOCATE_INFO));
     locate.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     locate.displayTime = frameState.predictedDisplayTime;
     locate.space = localSpace_;
@@ -1174,11 +1173,11 @@ void OpenXrHost::RenderFrame()
         {
             auto& swapchain = eyeSwapchains_[eye];
             std::uint32_t imageIndex{};
-            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
             if (!Check(xrAcquireSwapchainImage(swapchain.handle, &acquire, &imageIndex),
                 "xrAcquireSwapchainImage"))
                 continue;
-            XrSwapchainImageWaitInfo imageWait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            XrSwapchainImageWaitInfo imageWait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
             imageWait.timeout = XR_INFINITE_DURATION;
             const bool ready = Check(xrWaitSwapchainImage(swapchain.handle, &imageWait),
                 "xrWaitSwapchainImage");
@@ -1197,7 +1196,7 @@ void OpenXrHost::RenderFrame()
                 else
                     debugFrameSource_->RenderEye(renderInfo);
             }
-            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
             Check(xrReleaseSwapchainImage(swapchain.handle, &release), "xrReleaseSwapchainImage");
 
             auto& layerView = projectionViews[eye];
@@ -1212,11 +1211,11 @@ void OpenXrHost::RenderFrame()
         if (guiVisible)
         {
             std::uint32_t imageIndex{};
-            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
             if (Check(xrAcquireSwapchainImage(guiSwapchain_.handle, &acquire, &imageIndex),
                 "xrAcquireSwapchainImage(gui)"))
             {
-                XrSwapchainImageWaitInfo imageWait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                XrSwapchainImageWaitInfo imageWait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
                 imageWait.timeout = XR_INFINITE_DURATION;
                 if (Check(xrWaitSwapchainImage(guiSwapchain_.handle, &imageWait),
                     "xrWaitSwapchainImage(gui)"))
@@ -1227,7 +1226,7 @@ void OpenXrHost::RenderFrame()
                         guiSwapchain_.height) || guiQuadHasImage_;
 #endif
                 }
-                XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
                 Check(xrReleaseSwapchainImage(guiSwapchain_.handle, &release),
                     "xrReleaseSwapchainImage(gui)");
             }
@@ -1240,11 +1239,11 @@ void OpenXrHost::RenderFrame()
         guiQuadHasImage_ = false;
     }
 
-    XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjection layer(MakeXr<XrCompositionLayerProjection>(XR_TYPE_COMPOSITION_LAYER_PROJECTION));
     layer.space = localSpace_;
     layer.viewCount = static_cast<std::uint32_t>(projectionViews.size());
     layer.views = projectionViews.data();
-    XrCompositionLayerQuad guiLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerQuad guiLayer(MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
     guiLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     guiLayer.space = localSpace_;
     guiLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -1262,11 +1261,11 @@ void OpenXrHost::RenderFrame()
         axisSwapchain_.handle != XR_NULL_HANDLE)
     {
         std::uint32_t imageIndex{};
-        XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
         if (XR_SUCCEEDED(xrAcquireSwapchainImage(axisSwapchain_.handle, &acquire,
                 &imageIndex)))
         {
-            XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            XrSwapchainImageWaitInfo wait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
             wait.timeout = XR_INFINITE_DURATION;
             if (XR_SUCCEEDED(xrWaitSwapchainImage(axisSwapchain_.handle, &wait)))
             {
@@ -1276,7 +1275,7 @@ void OpenXrHost::RenderFrame()
                 context_->UpdateSubresource(axisSwapchain_.images[imageIndex].texture, 0,
                     nullptr, pixels, sizeof(pixels), 0);
             }
-            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
             xrReleaseSwapchainImage(axisSwapchain_.handle, &release);
         }
         constexpr float s = 0.70710678f;
@@ -1297,7 +1296,7 @@ void OpenXrHost::RenderFrame()
                 for (std::size_t axis = 0; axis < 3; ++axis)
                 {
                     XrCompositionLayerQuad& axisLayer = axisLayers[axisLayerCount++];
-                    axisLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                    axisLayer = (MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
                     axisLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
                     axisLayer.space = localSpace_;
                     axisLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -1333,7 +1332,7 @@ void OpenXrHost::RenderFrame()
             for (const XrQuaternionf& orientation : orientations)
             {
                 XrCompositionLayerQuad& rayLayer = axisLayers[axisLayerCount++];
-                rayLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                rayLayer = (MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
                 rayLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
                 rayLayer.space = localSpace_;
                 rayLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -1373,7 +1372,7 @@ void OpenXrHost::RenderFrame()
                 for (const XrQuaternionf& orientation : orientations)
                 {
                     XrCompositionLayerQuad& rayLayer = axisLayers[axisLayerCount++];
-                    rayLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                    rayLayer = (MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
                     rayLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
                     rayLayer.space = localSpace_;
                     rayLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -1399,7 +1398,7 @@ void OpenXrHost::RenderFrame()
             &axisLayers[index]);
     if (layerCount && guiVisible && guiQuadHasImage_)
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&guiLayer);
-    XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
+    XrFrameEndInfo endInfo(MakeXr<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO));
     endInfo.displayTime = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     endInfo.layerCount = layerCount;

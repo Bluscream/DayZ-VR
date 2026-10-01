@@ -1,4 +1,6 @@
 #include "dayz_runtime_probe.hpp"
+#include "dayz_build_profiles.hpp"
+#include "dayz_build_checks.hpp"
 
 #include "logging.hpp"
 #include "stereo_state.hpp"
@@ -23,37 +25,8 @@
 
 namespace
 {
-    struct BuildProfile
-    {
-        const char* name;
-        std::uint32_t peTimestamp;
-        std::uint32_t imageSize;
-        std::uintptr_t prepareViewRva;
-        std::uintptr_t executeViewRva;
-        std::uintptr_t finalizeViewRva;
-        std::uintptr_t projectionDispatchRva;
-        std::uintptr_t hudLayoutRva;
-        std::uintptr_t guiInputMessageRva;
-        std::uintptr_t guiScaleRva;
-        std::uintptr_t engineSingletonRva;
-        std::uintptr_t inventoryPreviewPrepareCallerRva;
-        std::uintptr_t dynamicBlurRva;
-        std::uintptr_t dynamicBlurParameterIndexRva;
-        std::uintptr_t profileFovRva;
-        std::uintptr_t cameraManagerRva;
-        std::uintptr_t getActiveCameraStateRva;
-        std::uintptr_t cameraFovUpdateRva;
-    };
-
-    constexpr std::array kBuildProfiles{
-        BuildProfile{"DayZ_x64", 0x6A47B9AAu, 0x04407000u, 0x004501A0, 0x004513A0,
-            0x004514B0, 0x00952B30, 0x008A2DB0, 0x00351760, 0x0427063C,
-            0x04263740, 0x005C5899, 0x0022FB70, 0x00FEE968, 0x01008E70,
-            0x01008D50, 0x004B77D0, 0x004B86C0},
-        BuildProfile{"DayZDiag_x64", 0x6A47BAF9u, 0x049E7000u, 0x0048D8A0, 0x0048EB30,
-            0x0048EC40, 0x00B30D10, 0x00A7B7B0, 0x00389410, 0x04823F4C,
-            0x04815740, 0, 0, 0, 0, 0, 0, 0},
-    };
+    using dayz::builds::BuildProfile;
+    using dayz::builds::kBuildProfiles;
 
     const BuildProfile* g_buildProfile{};
     std::uint32_t kImageSize{};
@@ -449,13 +422,6 @@ float4 PSMain(VertexOutput input) : SV_Target
         return g_cameraFovUpdate(cameraManager);
     }
 
-    void LogStereoApplication(unsigned eye, float offset)
-    {
-        std::ostringstream message;
-        message << "Alternating eye camera applied eye=" << eye << " offset=" << offset;
-        logging::Info(message.str());
-    }
-
     void WriteHudScale() noexcept
     {
         __try
@@ -685,6 +651,12 @@ float4 PSMain(VertexOutput input) : SV_Target
             }
         if (!g_buildProfile)
             return false;
+        if (g_buildProfile->peTimestamp == 0x6A72FC58u &&
+            !dayz::builds::ValidateCurrentBuild({
+                reinterpret_cast<const std::uint8_t*>(g_moduleBase),
+                nt->OptionalHeader.SizeOfImage}))
+            return false;
+
 
         kPrepareViewRva = g_buildProfile->prepareViewRva;
         kImageSize = g_buildProfile->imageSize;
@@ -1312,7 +1284,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         void* target = ReadCameraRefreshTarget(camera);
         if (!target || g_cameraRefreshHookAttempted.exchange(true))
             return;
-        const MH_STATUS created = MH_CreateHook(target, HookedCameraRefresh,
+        const MH_STATUS created = MH_CreateHook(target, reinterpret_cast<void*>(HookedCameraRefresh),
             reinterpret_cast<void**>(&g_cameraRefresh));
         const MH_STATUS enabled = created == MH_OK ? MH_EnableHook(target) : created;
         if (created != MH_OK || (enabled != MH_OK && enabled != MH_ERROR_ENABLED))
@@ -1635,7 +1607,8 @@ float4 PSMain(VertexOutput input) : SV_Target
                     if (address < g_moduleBase || address >= g_moduleBase + kImageSize)
                         continue;
                     const std::uintptr_t rva = address - g_moduleBase;
-                    if (rva >= 0x0025F000 && rva < 0x00261000)
+                    if (rva >= (g_buildProfile->drawIndexedReturnRva & ~std::uintptr_t{0xFFF}) &&
+                        rva < (g_buildProfile->drawIndexedReturnRva & ~std::uintptr_t{0xFFF}) + 0x2000)
                         continue;
                     event.parentCallerRva = rva;
                     break;
@@ -1671,7 +1644,7 @@ float4 PSMain(VertexOutput input) : SV_Target
             g_hudCompositeWidth > 0.0f && g_hudCompositeHeight > 0.0f;
         const bool scaledComposite = g_overrideHudScale && g_hudScale < 0.999f;
         if ((!guiCapture && !explicitComposite && !scaledComposite) || !target ||
-            (caller != g_moduleBase + 0x002601C2 && caller != g_moduleBase + 0x0026038E))
+            (caller != g_moduleBase + g_buildProfile->drawReturnRva && caller != g_moduleBase + g_buildProfile->drawSecondReturnRva))
             return false;
         ApiEvent targetDescription{};
         DescribeResource(target, targetDescription);
@@ -1713,7 +1686,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         const bool scaledGameplayHud = g_overrideHudScale && g_hudScale < 0.999f &&
             !RawGuiCursorModeActive();
         if ((!guiCapture && !explicitComposite && !scaledGameplayHud) || !target ||
-            caller != g_moduleBase + 0x002600DD)
+            caller != g_moduleBase + g_buildProfile->drawIndexedReturnRva)
             return false;
 
         ApiEvent targetDescription{};
@@ -1845,8 +1818,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         context->OMGetRenderTargets(1, &target, &depth);
         original.target.Attach(target);
         original.depth.Attach(depth);
-        const bool guiCandidate = indexed ? caller == g_moduleBase + 0x002600DD :
-            (caller == g_moduleBase + 0x002601C2 || caller == g_moduleBase + 0x0026038E);
+        const bool guiCandidate = indexed ? caller == g_moduleBase + g_buildProfile->drawIndexedReturnRva :
+            (caller == g_moduleBase + g_buildProfile->drawReturnRva || caller == g_moduleBase + g_buildProfile->drawSecondReturnRva);
         const bool guiCapture = g_guiQuadEnabled && guiCandidate && IsGuiCursorModeActive();
         if (indexed ? !IsInventoryLayerDraw(context, caller, target, guiCapture) :
                 !IsHudLayerDraw(context, caller, target, guiCapture))
@@ -2021,21 +1994,21 @@ float4 PSMain(VertexOutput input) : SV_Target
         if (!context)
             return false;
         void** table = *reinterpret_cast<void***>(context.Get());
-        if (MH_CreateHook(table[33], HookedOmSetRenderTargets,
+        if (MH_CreateHook(table[33], reinterpret_cast<void*>(HookedOmSetRenderTargets),
                 reinterpret_cast<void**>(&g_omSetRenderTargets)) != MH_OK ||
-            MH_CreateHook(table[44], HookedRsSetViewports,
+            MH_CreateHook(table[44], reinterpret_cast<void*>(HookedRsSetViewports),
                 reinterpret_cast<void**>(&g_rsSetViewports)) != MH_OK ||
-            MH_CreateHook(table[50], HookedClearRtv,
+            MH_CreateHook(table[50], reinterpret_cast<void*>(HookedClearRtv),
                 reinterpret_cast<void**>(&g_clearRtv)) != MH_OK ||
-            MH_CreateHook(table[53], HookedClearDsv,
+            MH_CreateHook(table[53], reinterpret_cast<void*>(HookedClearDsv),
                 reinterpret_cast<void**>(&g_clearDsv)) != MH_OK ||
-            MH_CreateHook(table[47], HookedCopyResource,
+            MH_CreateHook(table[47], reinterpret_cast<void*>(HookedCopyResource),
                 reinterpret_cast<void**>(&g_copyResource)) != MH_OK ||
-            MH_CreateHook(table[57], HookedResolve,
+            MH_CreateHook(table[57], reinterpret_cast<void*>(HookedResolve),
                 reinterpret_cast<void**>(&g_resolve)) != MH_OK ||
-            MH_CreateHook(table[12], HookedDrawIndexed,
+            MH_CreateHook(table[12], reinterpret_cast<void*>(HookedDrawIndexed),
                 reinterpret_cast<void**>(&g_drawIndexed)) != MH_OK ||
-            MH_CreateHook(table[13], HookedDraw,
+            MH_CreateHook(table[13], reinterpret_cast<void*>(HookedDraw),
                 reinterpret_cast<void**>(&g_draw)) != MH_OK)
             return false;
         for (const std::size_t index : {33u, 44u, 50u, 53u, 47u, 57u, 12u, 13u})
@@ -2114,7 +2087,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         if (!g_guiMouseRemapEnabled || !g_gameWindow ||
             GetForegroundWindow() != g_gameWindow)
             return false;
-        CURSORINFO info{sizeof(info)};
+        CURSORINFO info{};
+        info.cbSize = sizeof(info);
         const BOOL result = g_getCursorInfo ? g_getCursorInfo(&info) : GetCursorInfo(&info);
         return result && (info.flags & CURSOR_SHOWING) != 0;
     }
@@ -2362,9 +2336,9 @@ float4 PSMain(VertexOutput input) : SV_Target
         void* cursorInfoTarget = user32 ? reinterpret_cast<void*>(GetProcAddress(user32,
             "GetCursorInfo")) : nullptr;
         if (!cursorPosTarget || !cursorInfoTarget ||
-            MH_CreateHook(cursorPosTarget, HookedGetCursorPos,
+            MH_CreateHook(cursorPosTarget, reinterpret_cast<void*>(HookedGetCursorPos),
                 reinterpret_cast<void**>(&g_getCursorPos)) != MH_OK ||
-            MH_CreateHook(cursorInfoTarget, HookedGetCursorInfo,
+            MH_CreateHook(cursorInfoTarget, reinterpret_cast<void*>(HookedGetCursorInfo),
                 reinterpret_cast<void**>(&g_getCursorInfo)) != MH_OK ||
             MH_EnableHook(cursorPosTarget) != MH_OK ||
             MH_EnableHook(cursorInfoTarget) != MH_OK)
@@ -2426,7 +2400,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         if (!g_guiCursorEnabled || !g_gameWindow || nativeWidth <= 0.0f ||
             nativeHeight <= 0.0f || GetForegroundWindow() != g_gameWindow)
             return constants;
-        CURSORINFO info{sizeof(info)};
+        CURSORINFO info{};
+        info.cbSize = sizeof(info);
         POINT point{};
         if (GetVirtualCursorPoint(point))
         {
@@ -2724,17 +2699,17 @@ namespace dayz::runtime_probe
             g_frameRefreshTarget = ResolveFrameRefreshTarget();
             if (g_frameRefreshTarget)
                 frameRefreshHookCreated = MH_CreateHook(
-                    reinterpret_cast<void*>(g_frameRefreshTarget), HookedFrameRefresh,
+                    reinterpret_cast<void*>(g_frameRefreshTarget), reinterpret_cast<void*>(HookedFrameRefresh),
                     reinterpret_cast<void**>(&g_frameRefresh)) == MH_OK;
             if (!frameRefreshHookCreated)
                 logging::Error("Full FrameBase refresh hook unavailable; using camera-basis fallback");
         }
-        if (!AddHook(kPrepareViewRva, HookedPrepareView, g_prepareView) ||
-            !AddHook(kExecuteViewRva, HookedExecuteView, g_executeView) ||
-            !AddHook(kFinalizeViewRva, HookedFinalizeView, g_finalizeView) ||
-            !AddHook(kProjectionDispatchRva, HookedProjectionDispatch, g_projectionDispatch) ||
-            !AddHook(kHudLayoutRva, HookedHudLayout, g_hudLayout) ||
-            !AddHook(kGuiInputMessageRva, HookedGuiInputMessage, g_guiInputMessage))
+        if (!AddHook(kPrepareViewRva, reinterpret_cast<void*>(HookedPrepareView), g_prepareView) ||
+            !AddHook(kExecuteViewRva, reinterpret_cast<void*>(HookedExecuteView), g_executeView) ||
+            !AddHook(kFinalizeViewRva, reinterpret_cast<void*>(HookedFinalizeView), g_finalizeView) ||
+            !AddHook(kProjectionDispatchRva, reinterpret_cast<void*>(HookedProjectionDispatch), g_projectionDispatch) ||
+            !AddHook(kHudLayoutRva, reinterpret_cast<void*>(HookedHudLayout), g_hudLayout) ||
+            !AddHook(kGuiInputMessageRva, reinterpret_cast<void*>(HookedGuiInputMessage), g_guiInputMessage))
         {
             logging::Error("DayZ stereo runtime probe hook creation failed; hooks remain disabled");
             return false;
@@ -2742,7 +2717,7 @@ namespace dayz::runtime_probe
         bool dynamicBlurHookCreated{};
         if (!g_inventoryBlurEnabled && kDynamicBlurRva && kDynamicBlurParameterIndexRva)
         {
-            dynamicBlurHookCreated = AddHook(kDynamicBlurRva, HookedDynamicBlur,
+            dynamicBlurHookCreated = AddHook(kDynamicBlurRva, reinterpret_cast<void*>(HookedDynamicBlur),
                 g_dynamicBlur);
             if (!dynamicBlurHookCreated)
                 logging::Error("Inventory blur hook creation failed; blur remains enabled");
@@ -2750,7 +2725,7 @@ namespace dayz::runtime_probe
         bool cameraFovHookCreated{};
         if (g_gameFov > 0.0f && kCameraFovUpdateRva)
         {
-            cameraFovHookCreated = AddHook(kCameraFovUpdateRva, HookedCameraFovUpdate,
+            cameraFovHookCreated = AddHook(kCameraFovUpdateRva, reinterpret_cast<void*>(HookedCameraFovUpdate),
                 g_cameraFovUpdate);
             if (!cameraFovHookCreated)
                 logging::Error("Gameplay camera FOV hook creation failed");

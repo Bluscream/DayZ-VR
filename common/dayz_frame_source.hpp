@@ -42,5 +42,4 @@ private:
     DXGI_FORMAT sourceFormat_{DXGI_FORMAT_UNKNOWN};
     std::array<bool, 2> ready_{};
     bool pipelineReady_{};
-    bool loggedCapture_{};
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "frame_source.hpp"
+#include "xr_structure.hpp"
 
 #include <d3d11.h>
 #include <dxgi1_6.h>
@@ -105,10 +106,10 @@ private:
     std::array<XrSpace, 2> gripSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
     std::array<XrSpace, 2> aimSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
     std::array<XrSpaceLocation, 2> gripLocations_{{
-        {XR_TYPE_SPACE_LOCATION}, {XR_TYPE_SPACE_LOCATION}}};
+        (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION)), (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION))}};
     std::array<XrSpaceLocation, 2> aimLocations_{{
-        {XR_TYPE_SPACE_LOCATION}, {XR_TYPE_SPACE_LOCATION}}};
-    std::array<XrView, 2> views_{{{XR_TYPE_VIEW}, {XR_TYPE_VIEW}}};
+        (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION)), (MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION))}};
+    std::array<XrView, 2> views_{{(MakeXr<XrView>(XR_TYPE_VIEW)), (MakeXr<XrView>(XR_TYPE_VIEW))}};
     XrPosef guiQuadPose_{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, -1.25f}};
     float guiQuadWidthMeters_{1.4f};
     float guiQuadDistance_{1.25f};
