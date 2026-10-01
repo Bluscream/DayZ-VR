@@ -40,14 +40,16 @@ cmd=("$ghidra_home/support/analyzeHeadless" "$work_dir" "$project_name"
   "${import_args[@]}" -max-cpu "${GHIDRA_CPUS:-4}" -scriptPath "$script_dir/ghidra"
   -postScript DecompileRvas.java "$out_dir" "$@")
 say "running: ${cmd[*]}"
-# JAVA_HOME is pinned because ~/.local/bin/java on this host is a distrobox bridge
-# wrapper that shadows the container's JDK on PATH and fails inside the container.
+# Ghidra's launcher takes the first java on PATH before JAVA_HOME, and on this host
+# ~/.local/bin/java is a distrobox bridge wrapper that fails inside the container,
+# so the container JDK's bin directory is put in front of PATH.
 java_home="${JAVA_HOME_IN_CONTAINER:-/usr/lib/jvm/java-21-openjdk-amd64}"
 if [[ -f /run/.containerenv || -n "${CONTAINER_ID:-}" ]]; then
-  JAVA_HOME="$java_home" MAXMEM="${GHIDRA_MAXMEM:-8G}" nice -n 10 "${cmd[@]}"
+  PATH="$java_home/bin:$PATH" JAVA_HOME="$java_home" MAXMEM="${GHIDRA_MAXMEM:-8G}" \
+    nice -n 10 "${cmd[@]}"
 else
   command -v distrobox >/dev/null || die "distrobox is required"
-  distrobox enter "$container" -- env JAVA_HOME="$java_home" MAXMEM="${GHIDRA_MAXMEM:-8G}" \
-    nice -n 10 "${cmd[@]}"
+  distrobox enter "$container" -- env PATH="$java_home/bin:$PATH" JAVA_HOME="$java_home" \
+    MAXMEM="${GHIDRA_MAXMEM:-8G}" nice -n 10 "${cmd[@]}"
 fi
 say "decompiled output in $out_dir"
