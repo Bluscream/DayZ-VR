@@ -24,7 +24,7 @@ add_library(minhook STATIC third_party/minhook/src/buffer.c third_party/minhook/
 target_include_directories(minhook PUBLIC third_party/minhook/include)
 add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/openxr_host.cpp common/debug_frame_source.cpp common/dayz_frame_source.cpp
-  common/dayz_runtime_probe.cpp common/debug_bridge.cpp)
+  common/dayz_runtime_probe.cpp common/debug_bridge.cpp common/crash_report.cpp)
 target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)

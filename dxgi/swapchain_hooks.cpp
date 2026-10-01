@@ -275,8 +275,19 @@ namespace
         const auto original = Original<ResizeBuffersFn>(self, 13);
         if (!original)
             return DXGI_ERROR_INVALID_CALL;
+        const UINT requestedWidth = width;
+        const UINT requestedHeight = height;
         ApplyResolution(width, height);
         const HRESULT result = original(self, count, width, height, format, flags);
+        std::ostringstream message;
+        message << "ResizeBuffers requested=" << requestedWidth << 'x' << requestedHeight
+            << " applied=" << width << 'x' << height << " count=" << count
+            << " format=" << static_cast<unsigned>(format) << " flags=0x" << std::hex << flags
+            << " hr=0x" << static_cast<unsigned long>(result);
+        if (SUCCEEDED(result))
+            logging::Info(message.str());
+        else
+            logging::Error(message.str());
         return result;
     }
 }

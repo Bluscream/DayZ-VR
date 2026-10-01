@@ -1,6 +1,7 @@
 #include "dayz_runtime_probe.hpp"
 #include "dayz_build_profiles.hpp"
 #include "dayz_build_checks.hpp"
+#include "crash_report.hpp"
 
 #include "logging.hpp"
 #include "stereo_state.hpp"
@@ -2724,6 +2725,31 @@ float4 PSMain(VertexOutput input) : SV_Target
 
 namespace dayz::runtime_probe
 {
+    void DumpCrashContext() noexcept
+    {
+        const std::uint32_t count = g_eventCount.load(std::memory_order_relaxed);
+        const std::size_t visible = (std::min)(static_cast<std::size_t>(count), g_events.size());
+        std::ostringstream state;
+        state << "Crash context: frame_events=" << count << " presents=" << g_presentCount.load()
+            << " gui_cursor=" << IsGuiCursorModeActive()
+            << " native_aim=" << g_hmdNativeAimEnabled << " pending_mouse=" << g_pendingMouseX
+            << ',' << g_pendingMouseY << " keep_focus=" << g_keepFocusEnabled
+            << " real_foreground=" << (RealForegroundWindowImpl() == g_gameWindow)
+            << " last_hmd_camera=" << g_lastHmdCamera
+            << " projection_camera=" << g_projectionContextCamera;
+        logging::Error(state.str());
+        for (std::size_t index = 0; index < visible; ++index)
+        {
+            const Event& event = g_events[index];
+            std::ostringstream line;
+            line << "  event #" << index << ' ' << EventName(event.kind)
+                 << " tid=" << event.thread << " mode=" << static_cast<unsigned>(event.mode)
+                 << " ctx=" << event.context << " cam=" << event.camera
+                 << " caller=DayZ+0x" << std::hex << event.callerRva;
+            logging::Error(line.str());
+        }
+    }
+
     bool Initialize() noexcept
     {
         if (g_attempted.exchange(true))
@@ -2738,6 +2764,7 @@ namespace dayz::runtime_probe
             logging::Error("DayZ stereo runtime probe rejected this executable: PE/signature mismatch");
             return false;
         }
+        dayz::crash_report::Install(g_moduleBase, kImageSize, &DumpCrashContext);
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
         g_hmdRotationEnabled = ReadBoolean(L"stereo", L"hmd_rotation", true);
         g_hmdNativeAimEnabled = ReadBoolean(L"stereo", L"hmd_native_aim", true);
