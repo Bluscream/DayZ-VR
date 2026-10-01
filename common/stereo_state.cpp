@@ -188,4 +188,33 @@ namespace dayz::stereo_state
         result.radius = g_vignetteRadius.load(std::memory_order_relaxed);
         return result;
     }
+
+    namespace
+    {
+        std::atomic<float> g_aimX{0.0f};
+        std::atomic<float> g_aimY{0.0f};
+        std::atomic<float> g_aimZ{0.0f};
+        std::atomic<float> g_aimW{1.0f};
+        std::atomic<bool> g_aimValid{false};
+    }
+
+    void UpdateAimOrientation(float x, float y, float z, float w, bool valid) noexcept
+    {
+        g_aimX.store(x, std::memory_order_relaxed);
+        g_aimY.store(y, std::memory_order_relaxed);
+        g_aimZ.store(z, std::memory_order_relaxed);
+        g_aimW.store(w, std::memory_order_relaxed);
+        g_aimValid.store(valid, std::memory_order_release);
+    }
+
+    HmdOrientation GetAimOrientation() noexcept
+    {
+        HmdOrientation result{};
+        result.valid = g_aimValid.load(std::memory_order_acquire);
+        result.x = g_aimX.load(std::memory_order_relaxed);
+        result.y = g_aimY.load(std::memory_order_relaxed);
+        result.z = g_aimZ.load(std::memory_order_relaxed);
+        result.w = g_aimW.load(std::memory_order_relaxed);
+        return result;
+    }
 }

@@ -193,6 +193,10 @@ namespace
     // Closed-loop head aim (see hmd_aim_loop.hpp). The camera yaw captured at
     // recenter plays the role the HMD centre plays for the render camera.
     bool g_hmdAimClosedLoop{true};
+    // Aim DayZ's camera with the right controller instead of the head; the
+    // rendered view then shows the head direction (decoupled aim).
+    bool g_controllerAim{};
+    bool g_controllerAimActive{};
     float g_aimLoopDamping{0.5f};
     float g_aimLoopMaxCounts{400.0f};
     dayz::aim_loop::State g_aimLoop{};
@@ -1055,6 +1059,23 @@ float4 PSMain(VertexOutput input) : SV_Target
             // A locked axis stays on the render side instead, so the head still
             // looks around that axis while DayZ's aim direction ignores it.
             renderRotation = RenderOnlyRotation(relative, g_lockHmdYaw, g_lockHmdPitch);
+            if (g_controllerAimActive && g_haveAimCenter)
+            {
+                // The game camera follows the controller; undo its rotation
+                // relative to the centre so the eyes still see the head direction.
+                const Vec3 native = DirectionToOpenXr(g_baseCameraBasis.forward);
+                const float cameraYaw = dayz::aim_loop::WrapAngle(
+                    std::atan2(-native.x, -native.z) - g_aimCameraYawCenter);
+                const float cameraPitch = std::asin((std::clamp)(native.y, -1.0f, 1.0f));
+                const Quaternion yawRotation{0.0f, std::sin(cameraYaw * 0.5f), 0.0f,
+                    std::cos(cameraYaw * 0.5f)};
+                const Quaternion pitchRotation{std::sin(cameraPitch * 0.5f), 0.0f, 0.0f,
+                    std::cos(cameraPitch * 0.5f)};
+                const Quaternion cameraRotation = Normalize(Multiply(yawRotation, pitchRotation));
+                const Quaternion inverseCamera{-cameraRotation.x, -cameraRotation.y,
+                    -cameraRotation.z, cameraRotation.w};
+                renderRotation = Normalize(Multiply(inverseCamera, relative));
+            }
         }
         const auto address = reinterpret_cast<std::uintptr_t>(camera);
         CameraBasis gameBasis{};
@@ -2180,16 +2201,32 @@ float4 PSMain(VertexOutput input) : SV_Target
             dayz::aim_loop::Reset(g_aimLoop, config);
         }
         g_aimYawWasLocked = g_lockHmdYaw;
+        float targetYaw = hmdYaw;
+        float targetPitch = hmdPitch;
+        bool controllerActive = false;
+        if (g_controllerAim)
+        {
+            const dayz::stereo_state::HmdOrientation aim = dayz::stereo_state::GetAimOrientation();
+            if (aim.valid)
+            {
+                const Quaternion q = Normalize({aim.x, aim.y, aim.z, aim.w});
+                targetYaw = std::atan2(2.0f * (q.w * q.y + q.x * q.z),
+                    1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+                targetPitch = std::asin((std::clamp)(2.0f * (q.w * q.x - q.z * q.y), -1.0f, 1.0f));
+                controllerActive = true;
+            }
+        }
+        g_controllerAimActive = controllerActive;
         dayz::aim_loop::Config config{};
         config.yawCountsPerRadian = g_hmdMouseYawScale;
         config.pitchCountsPerRadian = g_hmdMousePitchScale;
         config.damping = g_aimLoopDamping;
         config.maxCountsPerFrame = g_aimLoopMaxCounts;
         const float desiredYaw = g_aimCameraYawCenter +
-            dayz::aim_loop::WrapAngle(hmdYaw - g_aimHmdYawCenter) +
+            dayz::aim_loop::WrapAngle(targetYaw - g_aimHmdYawCenter) +
             g_aimYawOffset.load(std::memory_order_relaxed);
         const dayz::aim_loop::Output out = dayz::aim_loop::Step(g_aimLoop, config,
-            g_lockHmdYaw ? cameraYaw : desiredYaw, g_lockHmdPitch ? cameraPitch : hmdPitch,
+            g_lockHmdYaw ? cameraYaw : desiredYaw, g_lockHmdPitch ? cameraPitch : targetPitch,
             cameraYaw, cameraPitch);
         g_aimYawError = out.yawError;
         g_aimPitchError = out.pitchError;
@@ -2868,6 +2905,7 @@ namespace dayz::runtime_probe
         g_lockHmdYaw = ReadBoolean(L"stereo", L"lock_yaw", false);
         g_lockHmdPitch = ReadBoolean(L"stereo", L"lock_pitch", false);
         g_hmdAimClosedLoop = ReadBoolean(L"stereo", L"hmd_aim_closed_loop", true);
+        g_controllerAim = ReadBoolean(L"stereo", L"controller_aim", false);
         g_aimLoopDamping = ReadFloat(L"stereo", L"hmd_aim_loop_damping", 0.5f);
         g_aimLoopMaxCounts = ReadFloat(L"stereo", L"hmd_aim_loop_max_counts", 400.0f);
         g_cameraSeparation = ReadFloat(L"stereo", L"camera_separation", 0.064f);
@@ -3245,6 +3283,7 @@ namespace dayz::runtime_probe
             {"stereo.lock_yaw", TunableKind::Bool, &g_lockHmdYaw, 0.0f, 1.0f},
             {"stereo.lock_pitch", TunableKind::Bool, &g_lockHmdPitch, 0.0f, 1.0f},
             {"stereo.hmd_aim_closed_loop", TunableKind::Bool, &g_hmdAimClosedLoop, 0.0f, 1.0f},
+            {"stereo.controller_aim", TunableKind::Bool, &g_controllerAim, 0.0f, 1.0f},
             {"stereo.hmd_aim_loop_damping", TunableKind::Float, &g_aimLoopDamping, 0.05f, 1.0f},
             {"stereo.hmd_aim_loop_max_counts", TunableKind::Float, &g_aimLoopMaxCounts, 1.0f, 5000.0f},
             {"stereo.override_hud_scale", TunableKind::Bool, &g_overrideHudScale, 0.0f, 1.0f},

@@ -48,6 +48,10 @@ namespace dayz::stereo_state
     EyePositions GetEyePositions() noexcept;
     void UpdateHmdOrientation(float x, float y, float z, float w) noexcept;
     HmdOrientation GetHmdOrientation() noexcept;
+    // Right controller aim-pose orientation in the same space as the HMD;
+    // valid=false when the controller is not tracked.
+    void UpdateAimOrientation(float x, float y, float z, float w, bool valid) noexcept;
+    HmdOrientation GetAimOrientation() noexcept;
     void UpdateHmdPosition(float x, float y, float z) noexcept;
     HmdPosition GetHmdPosition() noexcept;
     void UpdateCameraDirections(float nativeX, float nativeY, float nativeZ,

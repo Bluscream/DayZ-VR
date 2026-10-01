@@ -86,7 +86,9 @@ namespace dayz::hotkeys
 
         bool KeyDown(int key) noexcept
         {
-            return (GetAsyncKeyState(key) & 0x8000) != 0;
+            // Bit 0 reports a press since the previous query, so a tap shorter
+            // than one frame (70 ms at 14 fps) is still seen by the per-frame poll.
+            return (GetAsyncKeyState(key) & 0x8001) != 0;
         }
 
         bool BindingDown(const Binding& binding) noexcept

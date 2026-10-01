@@ -928,6 +928,13 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
         xrLocateSpace(gripSpaces_[hand], localSpace_, displayTime, &gripLocations_[hand]);
         xrLocateSpace(aimSpaces_[hand], localSpace_, displayTime, &aimLocations_[hand]);
     }
+    {
+        const XrSpaceLocation& rightAim = aimLocations_[1];
+        const bool valid = (rightAim.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+        dayz::stereo_state::UpdateAimOrientation(rightAim.pose.orientation.x,
+            rightAim.pose.orientation.y, rightAim.pose.orientation.z,
+            rightAim.pose.orientation.w, valid);
+    }
 #ifndef _WINDLL
     (void)guiVisible;
     return;
