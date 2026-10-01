@@ -11,6 +11,8 @@ host, so this script needs no Wine. Examples:
     dayz-vr-ctl.py tunables                 # current tunable values
     dayz-vr-ctl.py set stereo.hmd_mouse_yaw_scale -300
     dayz-vr-ctl.py recenter
+    dayz-vr-ctl.py snapshot turned-left     # save state to build/snapshots/<time>-turned-left.json
+    dayz-vr-ctl.py compare                  # yaw/pitch deltas between the last two snapshots
 """
 
 from __future__ import annotations
@@ -21,9 +23,12 @@ import math
 import socket
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 DEFAULT_PORT = 48621
+SNAPSHOT_DIR = Path(__file__).resolve().parent.parent / "build" / "snapshots"
 
 
 class DebugClient:
@@ -61,6 +66,39 @@ def summary(state: dict[str, Any]) -> str:
     )
 
 
+def camera_yaw(direction: list[float]) -> float:
+    """Yaw in degrees of a game-space direction vector, same convention as hmd_yaw."""
+    return math.degrees(math.atan2(direction[0], direction[2]))
+
+
+def wrap_degrees(value: float) -> float:
+    return (value + 180.0) % 360.0 - 180.0
+
+
+def save_snapshot(state: dict[str, Any], label: str) -> Path:
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    path = SNAPSHOT_DIR / f"{stamp}-{label}.json"
+    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def compare_snapshots(before: dict[str, Any], after: dict[str, Any]) -> str:
+    hmd_yaw = wrap_degrees(degrees(after["hmd_yaw"]) - degrees(before["hmd_yaw"]))
+    hmd_pitch = degrees(after["hmd_pitch"]) - degrees(before["hmd_pitch"])
+    cam_yaw = wrap_degrees(camera_yaw(after["native_camera_direction"]) - camera_yaw(before["native_camera_direction"]))
+    ratio = cam_yaw / hmd_yaw if abs(hmd_yaw) > 1.0 else float("nan")
+    lines = [
+        f"HMD yaw:    {degrees(before['hmd_yaw']):7.1f} -> {degrees(after['hmd_yaw']):7.1f}  delta {hmd_yaw:+.1f} deg",
+        f"HMD pitch:  {degrees(before['hmd_pitch']):7.1f} -> {degrees(after['hmd_pitch']):7.1f}  delta {hmd_pitch:+.1f} deg",
+        f"HMD roll:   {degrees(before['hmd_roll']):7.1f} -> {degrees(after['hmd_roll']):7.1f}",
+        f"camera yaw: {camera_yaw(before['native_camera_direction']):7.1f} -> {camera_yaw(after['native_camera_direction']):7.1f}  delta {cam_yaw:+.1f} deg",
+        f"camera/HMD yaw ratio: {ratio:.3f}   (1.000 = head turn matches game turn)",
+        f"focused: before={before['window_focused']} after={after['window_focused']}",
+    ]
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
@@ -78,7 +116,23 @@ def main(argv: list[str]) -> int:
     setter.add_argument("value", type=float)
     commands.add_parser("recenter", help="recapture the HMD yaw and position centre")
     commands.add_parser("ping")
+    snapshot = commands.add_parser("snapshot", help="save the state to build/snapshots and compare with the previous one")
+    snapshot.add_argument("label", nargs="?", default="snapshot")
+    compare = commands.add_parser("compare", help="compare two saved snapshots (default: the last two)")
+    compare.add_argument("before", nargs="?")
+    compare.add_argument("after", nargs="?")
     args = parser.parse_args(argv)
+
+    if args.command == "compare":
+        files = sorted(SNAPSHOT_DIR.glob("*.json"))
+        before = Path(args.before) if args.before else (files[-2] if len(files) >= 2 else None)
+        after = Path(args.after) if args.after else (files[-1] if files else None)
+        if before is None or after is None:
+            print("need two snapshots to compare", file=sys.stderr)
+            return 2
+        print(f"{before.name} -> {after.name}")
+        print(compare_snapshots(json.loads(before.read_text()), json.loads(after.read_text())))
+        return 0
 
     try:
         client = DebugClient(args.host, args.port, args.timeout)
@@ -111,6 +165,15 @@ def main(argv: list[str]) -> int:
             print(json.dumps(client.request("recenter")))
         elif args.command == "ping":
             print(json.dumps(client.request("ping")))
+        elif args.command == "snapshot":
+            previous = sorted(SNAPSHOT_DIR.glob("*.json"))
+            state = client.request("get")
+            path = save_snapshot(state, args.label)
+            print(f"saved {path}")
+            print(summary(state))
+            if previous:
+                print(f"vs {previous[-1].name}:")
+                print(compare_snapshots(json.loads(previous[-1].read_text()), state))
     except KeyboardInterrupt:
         pass
     finally:
