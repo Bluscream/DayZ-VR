@@ -702,6 +702,8 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     directionRayThickness_ = (std::clamp)(ReadFloat(L"controls",
         L"direction_ray_thickness", 0.006f), 0.001f, 0.03f);
     controllerTurnScale_ = ReadFloat(L"controls", L"turn_scale", 18.0f);
+    controllerTurnRate_ = (std::clamp)(ReadFloat(L"controls", L"turn_rate", 90.0f), 0.0f, 720.0f);
+    controllerSnapTurn_ = (std::clamp)(ReadFloat(L"controls", L"snap_turn", 0.0f), 0.0f, 180.0f);
     controllerDeadzone_ = (std::clamp)(ReadFloat(L"controls", L"deadzone", 0.3f),
         0.0f, 0.9f);
     logging::Info("Creating OpenXR session");
@@ -938,7 +940,33 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
             SendKey(keys[index], desired[index]);
             movementKeys_[index] = desired[index];
         }
-    if (std::fabs(rightStick.x) > controllerDeadzone_)
+    const bool turning = std::fabs(rightStick.x) > controllerDeadzone_;
+    if (dayz::runtime_probe::ClosedLoopAimActive())
+    {
+        // With the closed loop owning DayZ's mouse camera, stick turns rotate
+        // the yaw target instead of injecting raw counts that the loop would
+        // immediately undo. Snap turn fires once per deflection past the deadzone.
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        if (controllerSnapTurn_ > 0.0f)
+        {
+            if (turning && snapTurnArmed_)
+            {
+                dayz::runtime_probe::AddAimYawOffset(
+                    (rightStick.x > 0.0f ? -1.0f : 1.0f) * controllerSnapTurn_ * kDegToRad);
+                snapTurnArmed_ = false;
+            }
+            else if (!turning)
+                snapTurnArmed_ = true;
+        }
+        else if (turning && lastTurnTime_ != 0)
+        {
+            const float seconds = (std::clamp)(
+                static_cast<float>(displayTime - lastTurnTime_) * 1e-9f, 0.0f, 0.1f);
+            dayz::runtime_probe::AddAimYawOffset(-rightStick.x * controllerTurnRate_ * kDegToRad * seconds);
+        }
+        lastTurnTime_ = displayTime;
+    }
+    else if (turning)
         SendMouseTurn(static_cast<LONG>(std::lround(rightStick.x * controllerTurnScale_)));
 
     const auto booleanState = [&](XrAction action, std::size_t hand) {

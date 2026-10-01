@@ -147,6 +147,10 @@ private:
     float directionRayLength_{3.0f};
     float directionRayThickness_{0.006f};
     float controllerTurnScale_{18.0f};
+    float controllerTurnRate_{90.0f};
+    float controllerSnapTurn_{0.0f};
+    bool snapTurnArmed_{true};
+    XrTime lastTurnTime_{};
     float controllerDeadzone_{0.3f};
     std::array<bool, 4> movementKeys_{};
     bool leftMouseDown_{};

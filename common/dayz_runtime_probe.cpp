@@ -201,6 +201,7 @@ namespace
     bool g_haveAimCenter{};
     bool g_aimYawWasLocked{};
     float g_aimYawError{};
+    std::atomic<float> g_aimYawOffset{0.0f};
     float g_aimPitchError{};
     bool g_haveNativeHmdAngles{};
     float g_previousHmdYaw{};
@@ -2185,7 +2186,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         config.damping = g_aimLoopDamping;
         config.maxCountsPerFrame = g_aimLoopMaxCounts;
         const float desiredYaw = g_aimCameraYawCenter +
-            dayz::aim_loop::WrapAngle(hmdYaw - g_aimHmdYawCenter);
+            dayz::aim_loop::WrapAngle(hmdYaw - g_aimHmdYawCenter) +
+            g_aimYawOffset.load(std::memory_order_relaxed);
         const dayz::aim_loop::Output out = dayz::aim_loop::Step(g_aimLoop, config,
             g_lockHmdYaw ? cameraYaw : desiredYaw, g_lockHmdPitch ? cameraPitch : hmdPitch,
             cameraYaw, cameraPitch);
@@ -3328,12 +3330,27 @@ namespace dayz::runtime_probe
             visit(context, tunable.name, ReadTunable(tunable));
     }
 
+    bool ClosedLoopAimActive() noexcept
+    {
+        return g_hmdRotationEnabled && g_hmdNativeAimEnabled && g_hmdAimClosedLoop;
+    }
+
+    void AddAimYawOffset(float radians) noexcept
+    {
+        float current = g_aimYawOffset.load(std::memory_order_relaxed);
+        while (!g_aimYawOffset.compare_exchange_weak(current,
+            dayz::aim_loop::WrapAngle(current + radians), std::memory_order_relaxed))
+        {
+        }
+    }
+
     void RecenterHmd() noexcept
     {
         g_haveHmdCenter = false;
         g_haveHmdPositionCenter = false;
         g_haveNativeHmdAngles = false;
         g_haveAimCenter = false;
+        g_aimYawOffset.store(0.0f, std::memory_order_relaxed);
         g_pendingMouseX = 0.0;
         g_pendingMouseY = 0.0;
     }

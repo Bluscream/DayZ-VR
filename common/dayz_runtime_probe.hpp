@@ -54,4 +54,9 @@ namespace dayz::runtime_probe
         void* context) noexcept;
     // Forget the captured HMD yaw/position centre so the next frame recaptures it.
     void RecenterHmd() noexcept;
+    // True while [stereo] hmd_aim_closed_loop drives DayZ's mouse camera.
+    bool ClosedLoopAimActive() noexcept;
+    // Rotates the closed-loop yaw target (radians, positive = left) for stick or
+    // snap turning; the loop then turns the game camera to match.
+    void AddAimYawOffset(float radians) noexcept;
 }
