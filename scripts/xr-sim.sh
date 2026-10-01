@@ -11,7 +11,8 @@
 #   scripts/xr-sim.sh status   show whether the service and its socket are up
 #   scripts/xr-sim.sh env      print the environment a game needs to use this runtime
 #
-# Environment overrides: BUILD_CONTAINER (default build-box), SIM_FRAMERATE (default 90).
+# Environment overrides: BUILD_CONTAINER (default build-box), SIM_FRAMERATE (default 90),
+# SIM_ROTATE=1 makes the simulated HMD spin continuously (known yaw rate for calibration).
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -70,7 +71,7 @@ cmd_start() {
   # XRT_COMPOSITOR_DEFAULT_FRAMERATE paces the null compositor like a real HMD.
   distrobox enter "$container" -- env XRT_NO_STDIN=1 XRT_COMPOSITOR_NULL=1 \
     XRT_COMPOSITOR_DEFAULT_FRAMERATE="${SIM_FRAMERATE:-90}" \
-    SIMULATED_ENABLE=1 XRT_DEBUG_GUI=0 monado-service \
+    SIMULATED_ENABLE=1 SIMULATED_ROTATE="${SIM_ROTATE:-0}" XRT_DEBUG_GUI=0 monado-service \
     > "$log_dir/monado-sim.log" 2>&1 &
   echo $! > "$pid_file"
   # The socket appears well within a second of startup; one bounded check.
