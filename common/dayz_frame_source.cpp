@@ -18,6 +18,9 @@ cbuffer FrameConstants : register(b0)
 {
     float2 DisplayScale;
     float2 DisplayOffset;
+    float VignetteStrength;
+    float VignetteRadius;
+    float2 Padding;
 };
 
 struct VertexOutput
@@ -39,7 +42,15 @@ float4 PSMain(VertexOutput input) : SV_Target
     float2 sourceUv = (input.uv - DisplayOffset) / DisplayScale;
     if (any(sourceUv < 0.0) || any(sourceUv > 1.0))
         return float4(0.0, 0.0, 0.0, 1.0);
-    return GameFrame.Sample(LinearClamp, sourceUv);
+    float4 color = GameFrame.Sample(LinearClamp, sourceUv);
+    if (VignetteStrength > 0.0)
+    {
+        // Radial fade from the clear centre radius to the eye-image corner.
+        float distance = length(input.uv - 0.5) * 2.0;
+        float fade = smoothstep(VignetteRadius, 1.2, distance) * VignetteStrength;
+        color.rgb *= 1.0 - fade;
+    }
+    return color;
 }
 )";
 
@@ -204,7 +215,10 @@ void DayZFrameSource::RenderEye(const EyeRenderInfo& eye) noexcept
     if (!HasGameData() || !deferredContext_ || !eye.rtv || eye.width == 0 || eye.height == 0)
         return;
 
-    FrameConstants values{{1.0f, 1.0f}, {0.0f, 0.0f}};
+    FrameConstants values{{1.0f, 1.0f}, {0.0f, 0.0f}, 0.0f, 0.6f, {0.0f, 0.0f}};
+    const dayz::stereo_state::ComfortVignette vignette = dayz::stereo_state::GetComfortVignette();
+    values.vignetteStrength = vignette.strength;
+    values.vignetteRadius = vignette.radius;
     const float sourceAspect = static_cast<float>(sourceWidth_) / sourceHeight_;
     const float targetAspect = static_cast<float>(eye.width) / eye.height;
     const dayz::stereo_state::Presentation presentation =

@@ -59,4 +59,8 @@ namespace dayz::stereo_state
     float ImageShift() noexcept;
     void SetPresentation(FitMode fitMode, float scaleX, float scaleY) noexcept;
     Presentation GetPresentation() noexcept;
+    // Comfort vignette published by dayz::comfort; strength 0 draws nothing.
+    struct ComfortVignette { float strength{}; float radius{0.6f}; };
+    void SetComfortVignette(float strength, float radius) noexcept;
+    ComfortVignette GetComfortVignette() noexcept;
 }

@@ -21,6 +21,9 @@ private:
     {
         float displayScale[2];
         float displayOffset[2];
+        float vignetteStrength;
+        float vignetteRadius;
+        float padding[2];
     };
 
     bool CreatePipeline() noexcept;

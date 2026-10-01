@@ -168,4 +168,24 @@ namespace dayz::stereo_state
         result.scaleY = g_scaleY.load(std::memory_order_relaxed);
         return result;
     }
+
+    namespace
+    {
+        std::atomic<float> g_vignetteStrength{0.0f};
+        std::atomic<float> g_vignetteRadius{0.6f};
+    }
+
+    void SetComfortVignette(float strength, float radius) noexcept
+    {
+        g_vignetteStrength.store(strength, std::memory_order_relaxed);
+        g_vignetteRadius.store(radius, std::memory_order_relaxed);
+    }
+
+    ComfortVignette GetComfortVignette() noexcept
+    {
+        ComfortVignette result{};
+        result.strength = g_vignetteStrength.load(std::memory_order_relaxed);
+        result.radius = g_vignetteRadius.load(std::memory_order_relaxed);
+        return result;
+    }
 }

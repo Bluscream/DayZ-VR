@@ -1,5 +1,7 @@
 #include "openxr_host.hpp"
 
+#include "comfort.hpp"
+
 #include "debug_frame_source.hpp"
 #include "dayz_frame_source.hpp"
 #include "dayz_runtime_probe.hpp"
@@ -702,6 +704,7 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     directionRayThickness_ = (std::clamp)(ReadFloat(L"controls",
         L"direction_ray_thickness", 0.006f), 0.001f, 0.03f);
     controllerTurnScale_ = ReadFloat(L"controls", L"turn_scale", 18.0f);
+    dayz::comfort::Initialize(ConfigurationPath().c_str());
     controllerTurnRate_ = (std::clamp)(ReadFloat(L"controls", L"turn_rate", 90.0f), 0.0f, 720.0f);
     controllerSnapTurn_ = (std::clamp)(ReadFloat(L"controls", L"snap_turn", 0.0f), 0.0f, 180.0f);
     controllerDeadzone_ = (std::clamp)(ReadFloat(L"controls", L"deadzone", 0.3f),
@@ -941,6 +944,9 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
             movementKeys_[index] = desired[index];
         }
     const bool turning = std::fabs(rightStick.x) > controllerDeadzone_;
+    const bool moving = desired[0] || desired[1] || desired[2] || desired[3];
+    dayz::comfort::Update(moving, turning && controllerSnapTurn_ <= 0.0f,
+        lastTurnTime_ != 0 ? static_cast<float>(displayTime - lastTurnTime_) * 1e-9f : 0.0f);
     if (dayz::runtime_probe::ClosedLoopAimActive())
     {
         // With the closed loop owning DayZ's mouse camera, stick turns rotate
