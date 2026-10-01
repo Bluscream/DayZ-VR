@@ -34,6 +34,21 @@ public:
     bool IsSessionRunning() const noexcept { return sessionRunning_; }
     bool ShouldExit() const noexcept { return shouldExit_; }
 
+    // Copy of the last rendered frame's tracking data for the debug plugin. Kept
+    // behind its own mutex so a reader never blocks on xrWaitFrame.
+    struct DebugSnapshot
+    {
+        bool initialized{};
+        bool sessionRunning{};
+        int sessionState{};
+        double fps{};
+        bool hmdValid{};
+        XrPosef hmdPose{{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
+        std::array<XrSpaceLocation, 2> grip{};
+        std::array<XrSpaceLocation, 2> aim{};
+    };
+    DebugSnapshot GetDebugSnapshot() const noexcept;
+
 private:
     struct EyeSwapchain
     {
@@ -77,6 +92,9 @@ private:
     bool Check(XrResult result, const char* operation) const noexcept;
 
     mutable std::mutex mutex_;
+    mutable std::mutex debugMutex_;
+    DebugSnapshot debugSnapshot_{};
+    double lastFps_{};
     XrInstance instance_{XR_NULL_HANDLE};
     XrSystemId systemId_{XR_NULL_SYSTEM_ID};
     XrSession session_{XR_NULL_HANDLE};

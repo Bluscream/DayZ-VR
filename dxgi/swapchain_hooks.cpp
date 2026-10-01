@@ -2,6 +2,7 @@
 
 #include "openxr_host.hpp"
 #include "dayz_runtime_probe.hpp"
+#include "debug_bridge.hpp"
 #include "logging.hpp"
 #include <MinHook.h>
 
@@ -148,6 +149,9 @@ namespace
                 host.InitializeWithDevice(device.Get());
             }
         }
+        // The debug plugin is useful with OpenXR disabled too (hooks-only runs), so
+        // it starts as soon as the probe has had its chance to install.
+        dayz::debug_bridge::Start();
         if (host.IsInitialized())
         {
             dayz::runtime_probe::Initialize();

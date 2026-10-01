@@ -20,4 +20,30 @@ namespace dayz::runtime_probe
     bool RenderGuiQuad(ID3D11RenderTargetView* target, std::uint32_t width,
         std::uint32_t height) noexcept;
     bool IsActive() noexcept;
+
+    // Debug-plugin surface. These touch the same plain globals the render thread
+    // reads; a torn read is impossible for the 4-byte values involved, but values
+    // may be observed one frame late. Debug use only.
+    struct DebugSnapshot
+    {
+        bool hooksActive{};
+        bool windowFocused{};
+        bool guiCursorMode{};
+        bool guiQuadVisible{};
+        const char* buildProfile{""};
+        std::uint64_t presentCount{};
+        std::uint64_t stereoApplyCount{};
+        double pendingMouseX{};
+        double pendingMouseY{};
+    };
+    DebugSnapshot GetDebugSnapshot() noexcept;
+    // Tunable names are "section.key" as in dayz_openxr.ini. Booleans use 0/1.
+    bool GetTunable(const char* name, double& value) noexcept;
+    // Returns 0 on success, -1 for an unknown name, -2 for a rejected value.
+    int SetTunable(const char* name, double value) noexcept;
+    // Invokes `visit(name, value)` for every tunable.
+    void ForEachTunable(void (*visit)(void* context, const char* name, double value),
+        void* context) noexcept;
+    // Forget the captured HMD yaw/position centre so the next frame recaptures it.
+    void RecenterHmd() noexcept;
 }

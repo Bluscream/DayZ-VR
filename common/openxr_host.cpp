@@ -1163,11 +1163,22 @@ void OpenXrHost::RenderFrame()
             const float yaw = std::atan2(2.0f * (q.w * q.y + q.x * q.z), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
             const float roll = std::atan2(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
             std::ostringstream pose;
+            lastFps_ = seconds > 0.0 ? 120.0 / seconds : 0.0;
             pose << "pose q=(" << q.x << ',' << q.y << ',' << q.z << ',' << q.w
                  << ") ypr=(" << yaw << ',' << pitch << ',' << roll << ") fps="
-                 << (seconds > 0.0 ? 120.0 / seconds : 0.0)
-                 << " state=" << static_cast<int>(sessionState_);
+                 << lastFps_ << " state=" << static_cast<int>(sessionState_);
             logging::Info(pose.str());
+        }
+        {
+            std::scoped_lock debugLock(debugMutex_);
+            debugSnapshot_.initialized = initialized_;
+            debugSnapshot_.sessionRunning = sessionRunning_;
+            debugSnapshot_.sessionState = static_cast<int>(sessionState_);
+            debugSnapshot_.fps = lastFps_;
+            debugSnapshot_.hmdValid = true;
+            debugSnapshot_.hmdPose = views_[0].pose;
+            debugSnapshot_.grip = gripLocations_;
+            debugSnapshot_.aim = aimLocations_;
         }
         for (std::size_t eye = 0; eye < eyeSwapchains_.size(); ++eye)
         {
@@ -1404,6 +1415,17 @@ void OpenXrHost::RenderFrame()
     endInfo.layerCount = layerCount;
     endInfo.layers = layerCount ? layers.data() : nullptr;
     Check(xrEndFrame(session_, &endInfo), "xrEndFrame");
+}
+
+OpenXrHost::DebugSnapshot OpenXrHost::GetDebugSnapshot() const noexcept
+{
+    std::scoped_lock debugLock(debugMutex_);
+    DebugSnapshot snapshot = debugSnapshot_;
+    // Lifecycle flags are cheap to read live; the pose data stays frame-coherent.
+    snapshot.initialized = initialized_;
+    snapshot.sessionRunning = sessionRunning_;
+    snapshot.sessionState = static_cast<int>(sessionState_);
+    return snapshot;
 }
 
 void OpenXrHost::Tick() noexcept

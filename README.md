@@ -143,6 +143,24 @@ For a cautious forwarding-only test, first set `[openxr] enabled=false`, launch 
 
 When using a square game image, expect oversized UI elements because the current UI scale follows frame height. Adjust the window resolution in `\Documents\DayZ\DayZ.cfg` and the relevant HUD settings in `dayz_openxr.ini` as needed.
 
+## Runtime control for testing
+
+`dayz_openxr_debug.dll` is an optional plugin that exposes live tracking state and lets you change tunables while DayZ runs, so calibrating head-turn scale, camera separation or FOV does not need a restart. It is never linked into `dxgi.dll`; the proxy only shares the C header `common/dayz_vr_debug_api.h` with it and loads it by name when enabled.
+
+1. Copy `dayz_openxr_debug.dll` beside `dxgi.dll`.
+2. In `dayz_openxr.ini` set `[debug] enabled=true`. `port` defaults to 48621 and the listener binds to 127.0.0.1 only.
+3. With the game running, use `scripts/dayz-vr-ctl.py` from the host (on Linux/Proton the Wine loopback is the host loopback, so no Wine is needed):
+
+```text
+scripts/dayz-vr-ctl.py watch                         # fps, focus, head yaw/pitch/roll, position, queued mouse
+scripts/dayz-vr-ctl.py get                           # full state as JSON
+scripts/dayz-vr-ctl.py tunables                      # current values
+scripts/dayz-vr-ctl.py set stereo.hmd_mouse_yaw_scale -300
+scripts/dayz-vr-ctl.py recenter                      # recapture HMD yaw and position centre
+```
+
+Tunables are the `[stereo]` and `[gui]` keys the render path reads every frame; keys consumed only at hook installation (`runtime_probe`, HUD safe area, resolution override) still need a restart. A value set this way lasts until the game exits; copy it into the ini to keep it. The protocol is one command per line with one JSON line back (`get`, `tunables`, `set <name> <value>`, `recenter`, `ping`); any client that can open a TCP socket works.
+
 ## Uninstallation
 
 Close DayZ and remove `dxgi.dll`, `openxr_loader.dll`, and `dayz_openxr.ini` from the directory containing `DayZ_x64.exe`. Runtime log files such as `dayz_openxr.log` can also be removed.

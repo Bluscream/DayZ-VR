@@ -24,7 +24,7 @@ add_library(minhook STATIC third_party/minhook/src/buffer.c third_party/minhook/
 target_include_directories(minhook PUBLIC third_party/minhook/include)
 add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/openxr_host.cpp common/debug_frame_source.cpp common/dayz_frame_source.cpp
-  common/dayz_runtime_probe.cpp)
+  common/dayz_runtime_probe.cpp common/debug_bridge.cpp)
 target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)
@@ -39,7 +39,13 @@ add_executable(xr_probe xr_probe/main.cpp)
 target_link_libraries(xr_probe PRIVATE vr_common dxgi.lib)
 add_executable(dxgi_smoke WIN32 tests/dxgi_smoke.cpp)
 target_link_libraries(dxgi_smoke PRIVATE d3d11 dxguid user32)
-foreach(target vr_common dxgi xr_probe dxgi_smoke)
+# Optional runtime control plugin. Deliberately not linked to vr_common: it only
+# shares the C header and is loaded by dxgi.dll when [debug] enabled=true.
+add_library(dayz_openxr_debug SHARED debug_plugin/dayz_openxr_debug.cpp)
+target_compile_definitions(dayz_openxr_debug PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(dayz_openxr_debug PRIVATE ws2_32)
+set_target_properties(dayz_openxr_debug PROPERTIES PREFIX "")
+foreach(target vr_common dxgi xr_probe dxgi_smoke dayz_openxr_debug)
   target_compile_options(${target} PRIVATE /W4 /WX /EHsc /Zi)
   target_link_options(${target} PRIVATE /DEBUG)
 endforeach()

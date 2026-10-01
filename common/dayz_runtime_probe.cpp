@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <cmath>
 #include <sstream>
@@ -2967,5 +2968,135 @@ namespace dayz::runtime_probe
     bool IsActive() noexcept
     {
         return g_active.load(std::memory_order_relaxed);
+    }
+
+    DebugSnapshot GetDebugSnapshot() noexcept
+    {
+        DebugSnapshot snapshot;
+        snapshot.hooksActive = g_active.load(std::memory_order_relaxed);
+        snapshot.windowFocused = g_gameWindow && GetForegroundWindow() == g_gameWindow;
+        snapshot.guiCursorMode = IsGuiCursorModeActive();
+        snapshot.guiQuadVisible = IsGuiQuadVisible();
+        snapshot.buildProfile = g_buildProfile ? g_buildProfile->name : "";
+        snapshot.presentCount = g_presentCount.load(std::memory_order_relaxed);
+        snapshot.stereoApplyCount = g_stereoApplyCount.load(std::memory_order_relaxed);
+        snapshot.pendingMouseX = g_pendingMouseX;
+        snapshot.pendingMouseY = g_pendingMouseY;
+        return snapshot;
+    }
+
+    namespace
+    {
+        enum class TunableKind { Float, Bool, ImageShift, ScaleX, ScaleY };
+        struct Tunable
+        {
+            const char* name;
+            TunableKind kind;
+            void* target;
+            float minimum;
+            float maximum;
+        };
+        // One row per ini key that the render path reads every frame, so a change
+        // takes effect without restarting DayZ. Keys consumed only at hook
+        // installation (runtime_probe, hud safe area, resolution) are not listed.
+        const Tunable kTunables[]{
+            {"stereo.hmd_mouse_yaw_scale", TunableKind::Float, &g_hmdMouseYawScale, -5000.0f, 5000.0f},
+            {"stereo.hmd_mouse_pitch_scale", TunableKind::Float, &g_hmdMousePitchScale, -5000.0f, 5000.0f},
+            {"stereo.camera_separation", TunableKind::Float, &g_cameraSeparation, -1.0f, 1.0f},
+            {"stereo.hmd_position_scale", TunableKind::Float, &g_hmdPositionScale, 0.0f, 10.0f},
+            {"stereo.game_fov", TunableKind::Float, &g_gameFov, 0.0f, 2.8f},
+            {"stereo.hud_scale", TunableKind::Float, &g_hudScale, 0.05f, 1.0f},
+            {"stereo.alternate_eye", TunableKind::Bool, &g_alternateEyeEnabled, 0.0f, 1.0f},
+            {"stereo.hmd_native_aim", TunableKind::Bool, &g_hmdNativeAimEnabled, 0.0f, 1.0f},
+            {"stereo.override_hud_scale", TunableKind::Bool, &g_overrideHudScale, 0.0f, 1.0f},
+            {"stereo.image_shift", TunableKind::ImageShift, nullptr, -1.0f, 1.0f},
+            {"stereo.scale_x", TunableKind::ScaleX, nullptr, 0.1f, 4.0f},
+            {"stereo.scale_y", TunableKind::ScaleY, nullptr, 0.1f, 4.0f},
+            {"gui.inventory_hmd_look", TunableKind::Bool, &g_inventoryHmdLookEnabled, 0.0f, 1.0f},
+            {"gui.inventory_preview_rotation_scale", TunableKind::Float, &g_inventoryPreviewRotationScale, 0.0f, 2.0f},
+        };
+
+        const Tunable* FindTunable(const char* name) noexcept
+        {
+            if (!name)
+                return nullptr;
+            for (const Tunable& tunable : kTunables)
+                if (_stricmp(tunable.name, name) == 0)
+                    return &tunable;
+            return nullptr;
+        }
+
+        double ReadTunable(const Tunable& tunable) noexcept
+        {
+            switch (tunable.kind)
+            {
+            case TunableKind::Float: return *static_cast<const float*>(tunable.target);
+            case TunableKind::Bool: return *static_cast<const bool*>(tunable.target) ? 1.0 : 0.0;
+            case TunableKind::ImageShift: return dayz::stereo_state::ImageShift();
+            case TunableKind::ScaleX: return dayz::stereo_state::GetPresentation().scaleX;
+            case TunableKind::ScaleY: return dayz::stereo_state::GetPresentation().scaleY;
+            }
+            return 0.0;
+        }
+    }
+
+    bool GetTunable(const char* name, double& value) noexcept
+    {
+        const Tunable* tunable = FindTunable(name);
+        if (!tunable)
+            return false;
+        value = ReadTunable(*tunable);
+        return true;
+    }
+
+    int SetTunable(const char* name, double value) noexcept
+    {
+        const Tunable* tunable = FindTunable(name);
+        if (!tunable)
+            return -1;
+        if (!std::isfinite(value) || value < tunable->minimum || value > tunable->maximum)
+            return -2;
+        const float number = static_cast<float>(value);
+        switch (tunable->kind)
+        {
+        case TunableKind::Float:
+            *static_cast<float*>(tunable->target) = number;
+            break;
+        case TunableKind::Bool:
+            *static_cast<bool*>(tunable->target) = value != 0.0;
+            break;
+        case TunableKind::ImageShift:
+            dayz::stereo_state::SetImageShift(number);
+            break;
+        case TunableKind::ScaleX:
+        {
+            const auto presentation = dayz::stereo_state::GetPresentation();
+            dayz::stereo_state::SetPresentation(presentation.fitMode, number, presentation.scaleY);
+            break;
+        }
+        case TunableKind::ScaleY:
+        {
+            const auto presentation = dayz::stereo_state::GetPresentation();
+            dayz::stereo_state::SetPresentation(presentation.fitMode, presentation.scaleX, number);
+            break;
+        }
+        }
+        return 0;
+    }
+
+    void ForEachTunable(void (*visit)(void* context, const char* name, double value),
+        void* context) noexcept
+    {
+        for (const Tunable& tunable : kTunables)
+            visit(context, tunable.name, ReadTunable(tunable));
+    }
+
+    void RecenterHmd() noexcept
+    {
+        g_haveHmdCenter = false;
+        g_haveHmdPositionCenter = false;
+        g_haveNativeHmdAngles = false;
+        g_pendingMouseX = 0.0;
+        g_pendingMouseY = 0.0;
     }
 }
