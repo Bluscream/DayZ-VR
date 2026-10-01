@@ -13,7 +13,7 @@
 #
 # Environment overrides: BUILD_CONTAINER (default build-box), SIM_FRAMERATE (default 90),
 # SIM_ROTATE=1 makes the simulated HMD spin continuously (known yaw rate for calibration).
-# SIM_CONTROLLERS=1 adds simulated left/right controllers with valid poses.
+# SIM_CONTROLLERS=<simple|wmr|ml2> adds simulated left/right controllers of that type.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -73,7 +73,7 @@ cmd_start() {
   distrobox enter "$container" -- env XRT_NO_STDIN=1 XRT_COMPOSITOR_NULL=1 \
     XRT_COMPOSITOR_DEFAULT_FRAMERATE="${SIM_FRAMERATE:-90}" \
     SIMULATED_ENABLE=1 SIMULATED_ROTATE="${SIM_ROTATE:-0}" \
-    SIMULATED_LEFT="${SIM_CONTROLLERS:-0}" SIMULATED_RIGHT="${SIM_CONTROLLERS:-0}" \
+    SIMULATED_LEFT="${SIM_CONTROLLERS:-}" SIMULATED_RIGHT="${SIM_CONTROLLERS:-}" \
     XRT_DEBUG_GUI=0 monado-service \
     > "$log_dir/monado-sim.log" 2>&1 &
   echo $! > "$pid_file"

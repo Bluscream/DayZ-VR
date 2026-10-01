@@ -428,9 +428,29 @@ bool OpenXrHost::CreateControllerActions()
             {bButtonAction_, path("/user/hand/right/input/b/click")},
             {thumbstickAction_, path("/user/hand/left/input/thumbstick")},
             {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
+            {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
+            {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
+    };
+    // Windows Mixed Reality sticks: no X/Y/A/B, so menu and trackpad clicks
+    // stand in (left menu -> Menu, left trackpad -> Inventory, right trackpad ->
+    // Use, right menu -> Jump) and the grip is a click rather than a value.
+    suggest("/interaction_profiles/microsoft/motion_controller", {
+        {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
+        {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
+        {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
+        {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {triggerAction_, path("/user/hand/right/input/trigger/value")},
+        {triggerAction_, path("/user/hand/left/input/trigger/value")},
+        {grabAction_, path("/user/hand/left/input/squeeze/click")},
+        {grabAction_, path("/user/hand/right/input/squeeze/click")},
+        {xButtonAction_, path("/user/hand/left/input/menu/click")},
+        {yButtonAction_, path("/user/hand/left/input/trackpad/click")},
+        {aButtonAction_, path("/user/hand/right/input/trackpad/click")},
+        {bButtonAction_, path("/user/hand/right/input/menu/click")},
+        {thumbstickAction_, path("/user/hand/left/input/thumbstick")},
+        {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
         {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
         {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
-    };
     suggestXyController("/interaction_profiles/facebook/touch_controller_pro");
     suggestXyController("/interaction_profiles/meta/touch_controller_plus");
     suggestXyController("/interaction_profiles/bytedance/pico_neo3_controller");
