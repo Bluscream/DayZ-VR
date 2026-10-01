@@ -40,10 +40,14 @@ cmd=("$ghidra_home/support/analyzeHeadless" "$work_dir" "$project_name"
   "${import_args[@]}" -max-cpu "${GHIDRA_CPUS:-4}" -scriptPath "$script_dir/ghidra"
   -postScript DecompileRvas.java "$out_dir" "$@")
 say "running: ${cmd[*]}"
+# JAVA_HOME is pinned because ~/.local/bin/java on this host is a distrobox bridge
+# wrapper that shadows the container's JDK on PATH and fails inside the container.
+java_home="${JAVA_HOME_IN_CONTAINER:-/usr/lib/jvm/java-21-openjdk-amd64}"
 if [[ -f /run/.containerenv || -n "${CONTAINER_ID:-}" ]]; then
-  MAXMEM="${GHIDRA_MAXMEM:-8G}" nice -n 10 "${cmd[@]}"
+  JAVA_HOME="$java_home" MAXMEM="${GHIDRA_MAXMEM:-8G}" nice -n 10 "${cmd[@]}"
 else
   command -v distrobox >/dev/null || die "distrobox is required"
-  distrobox enter "$container" -- env MAXMEM="${GHIDRA_MAXMEM:-8G}" nice -n 10 "${cmd[@]}"
+  distrobox enter "$container" -- env JAVA_HOME="$java_home" MAXMEM="${GHIDRA_MAXMEM:-8G}" \
+    nice -n 10 "${cmd[@]}"
 fi
 say "decompiled output in $out_dir"
