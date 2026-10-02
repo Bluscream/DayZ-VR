@@ -4,6 +4,7 @@
 // a "+" glyph (chambered round) rendered into an RGBA8 bitmap that the host uploads
 // into a small OpenXR quad swapchain. Pure, host-testable, no Windows dependency.
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
