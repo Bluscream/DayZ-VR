@@ -15,8 +15,8 @@
 # ini highlights, processes, window, OpenXR session via the debug plugin, log summary
 # (errors/fatal/skips) and tail, crash dumps and DayZ's own logs, script bridge files,
 # sim runtime and local server. Exit code is 0 when the game is running without a fatal
-# exception since the offset, 1 otherwise. Never loops: the only wait is one bounded
-# `tail -F | grep -m1`.
+# exception since the offset, 1 otherwise. With --wait, an in-world marker is also
+# required. The event-driven follower has one deadline and always reaps its children.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -38,9 +38,9 @@ since=""
 lines=10
 while (( $# )); do
   case "$1" in
-    --wait) wait_seconds="$2"; shift 2 ;;
-    --since) since="$2"; shift 2 ;;
-    --lines) lines="$2"; shift 2 ;;
+    --wait) wait_seconds="${2:?--wait requires seconds}"; shift 2 ;;
+    --since) since="${2:?--since requires an offset}"; shift 2 ;;
+    --lines) lines="${2:?--lines requires a count}"; shift 2 ;;
     -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -62,24 +62,15 @@ file_info() {
 same_file() { [[ -f "$1" && -f "$2" ]] && cmp -s "$1" "$2" && echo "same as build" || echo "DIFFERS from build"; }
 dayz_pids() { pgrep -f 'DayZ_x6[4]\.exe' || true; }
 
+[[ "$wait_seconds" =~ ^[0-9]+$ && "$since" =~ ^[0-9]+$ && "$lines" =~ ^[1-9][0-9]*$ ]] || {
+  echo "--wait/--since must be nonnegative integers and --lines must be positive" >&2
+  exit 2
+}
+wait_passed=1
 if (( wait_seconds > 0 )); then
-  say "waiting up to ${wait_seconds}s for in-world, fatal exception or exit"
-  # Two bounded stages, no loops. Stage 1: the proxy's first log line (the game process
-  # is up; DayZ creates its script_*.log at about the same time). Stage 2: follow the
-  # proxy log and the newest DayZ script log together until in-world (first
-  # alternating-eye verification), a fatal exception, or a script compile error, which
-  # otherwise sits in a modal "Compile error" dialog that nothing else reports.
-  stage1=$(( wait_seconds < 90 ? wait_seconds : 90 ))
-  timeout "$stage1" bash -c "tail -n +$((since + 1)) -F '$log' 2>/dev/null | head -n 1" >/dev/null || true
-  script_log="$(find "$profile_dir" -maxdepth 1 -name 'script_*.log' -newer "$offset_file" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
-  extra_log=""
-  if [[ -n "$script_log" ]]; then
-    row "following" "$(basename "$script_log")"
-    extra_log="'$script_log'"
-  fi
-  timeout "$wait_seconds" bash -c \
-    "tail -n +$((since + 1)) -F '$log' $extra_log 2>/dev/null | grep -m1 -E 'Alternating eye camera verified|Double world render frame 1 |\] Fatal exception|SCRIPT *\(E\)|Can.t compile'" \
-    | cut -c1-160 || echo "  (timeout: no marker appeared)"
+  say "waiting up to ${wait_seconds}s for in-world or a failure marker"
+  python3 "$script_dir/dayz_log.py" wait-launch --log "$log" --since "$since" \
+    --timeout "$wait_seconds" --profile "$profile_dir" --marker "$offset_file" || wait_passed=0
 fi
 
 say "game install"
@@ -176,8 +167,8 @@ if [[ -f "$log" ]]; then
   row "errors" "$(printf '%s\n' "$new" | grep -c '\[ERROR\]' || true)"
   row "fatal" "$(printf '%s\n' "$new" | grep -c '\] Fatal exception' || true)"
   row "guard skips" "$(printf '%s\n' "$new" | grep -c 'Skipped executeView' || true)"
-  row "profile" "$(printf '%s\n' "$new" | grep -o 'runtime probe active: [^;]*' | head -1)"
-  { printf '%s\n' "$new" | grep '\] Fatal exception\|Crash context' || true; } | head -3 | cut -c1-200 | sed 's/^/  ! /'
+  row "profile" "$(printf '%s\n' "$new" | grep -o 'runtime probe active: [^;]*' | sed -n '1p')"
+  { printf '%s\n' "$new" | grep '\] Fatal exception\|Crash context' || true; } | sed -n '1,3p' | cut -c1-200 | sed 's/^/  ! /'
   { printf '%s\n' "$new" | grep -v '^\s*#\|D3D #\|ALPHA #\|^\s*event #\|^\s*$' || true; } | tail -n "$lines" | cut -c12-160 | sed 's/^/  /'
 else
   row "log" "missing"
@@ -189,12 +180,12 @@ for dir in "$profile_dir" "$documents_dir"; do
   { find "$dir" -maxdepth 1 \( -name '*.mdmp' -o -name '*.RPT' -o -name 'crash_*.log' \) -mmin -180 -printf '  %TY-%Tm-%Td %TH:%TM  %s  %p\n' 2>/dev/null || true; } | sort | tail -5
 done
 # The newest crash log: distinct reasons with counts (script VM exceptions repeat per frame).
-newest() { find "$1" -maxdepth 1 -name "$2" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-; }
+newest() { [[ -d "$1" ]] || return 0; find "$1" -maxdepth 1 -name "$2" -printf '%T@ %p\n' 2>/dev/null | sort -rn | sed -n '1p' | cut -d' ' -f2-; }
 latest_crash="$(newest "$profile_dir" 'crash_*.log')"
 if [[ -n "$latest_crash" ]]; then
   row "latest crash log" "$(file_info "$latest_crash")  $(basename "$latest_crash")"
-  { grep -h '^Reason:' "$latest_crash" || true; } | sort | uniq -c | sort -rn | head -3 | cut -c1-160 | sed 's/^/  ! /'
-  { grep -h -m1 -A4 '^Stack trace' "$latest_crash" || true; } | tail -n +2 | head -3 | cut -c1-160 | sed 's/^/    /'
+  { grep -h '^Reason:' "$latest_crash" || true; } | sort | uniq -c | sort -rn | sed -n '1,3p' | cut -c1-160 | sed 's/^/  ! /'
+  { grep -h -m1 -A4 '^Stack trace' "$latest_crash" || true; } | tail -n +2 | sed -n '1,3p' | cut -c1-160 | sed 's/^/    /'
 fi
 latest_script="$(newest "$profile_dir" 'script_*.log')"
 if [[ -n "$latest_script" ]]; then
@@ -229,13 +220,15 @@ for name in game.txt vr.txt; do
   fi
 done
 
-compile_error=0
-if [[ -n "$latest_script" ]] && [[ "$latest_script" -nt "$offset_file" ]] && grep -q 'SCRIPT *(E)\|Can.t compile' "$latest_script"; then
-  row "RESULT" "SCRIPT COMPILE ERROR (modal dialog is blocking the game; kill the process, fix the mod, redeploy)"
-  grep -m3 'SCRIPT *(E)' "$latest_script" | cut -c1-200 | sed 's/^/  ! /'
-  compile_error=1
+say "result"
+check_args=(--log "$log" --since "$since" --profile "$profile_dir" --marker "$offset_file")
+if (( wait_seconds > 0 )); then check_args+=(--require-world); fi
+log_passed=1
+python3 "$script_dir/dayz_log.py" check "${check_args[@]}" || log_passed=0
+if [[ -z "$pids" ]]; then row "RESULT" "DayZ is not running"; exit 1; fi
+if (( wait_passed == 0 || log_passed == 0 )); then
+  row "RESULT" "FAILED (see log classification above)"
+  exit 1
 fi
-if [[ -n "$pids" && $compile_error == 0 ]] && ! tail -n +"$((since + 1))" "$log" 2>/dev/null | grep -q '\] Fatal exception'; then
-  exit 0
-fi
-exit 1
+row "RESULT" "PASSED the requested log checks (headset output is not verified)"
+exit 0

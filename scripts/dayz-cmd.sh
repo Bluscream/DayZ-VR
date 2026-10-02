@@ -55,8 +55,8 @@ touch "$log"
 before="$(wc -l < "$log")"
 printf '%s\n' "$command_text" >> "$cmd_file"
 # Wait for the matching result line; bounded by timeout, no polling loop.
-if ! timeout "$timeout_seconds" bash -c \
-    "tail -n +$((before + 1)) -F '$log' 2>/dev/null | grep -m1 -F '$command_text -> '"; then
+if ! python3 "$script_dir/dayz_log.py" command --log "$log" --since "$before" \
+    --timeout "$timeout_seconds" --literal "$command_text -> "; then
   echo "error: no result within ${timeout_seconds}s (server mod not loaded, no player connected, or server down)" >&2
   exit 1
 fi
