@@ -3,6 +3,7 @@
 // protocol.hpp on 127.0.0.1:<port> so a tool on the host (scripts/dayz-vr-ctl.py)
 // can read tracking state and change tunables while DayZ runs.
 #include "protocol.hpp"
+#include "socket_wait.hpp"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -10,6 +11,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -20,11 +22,17 @@ namespace
     std::atomic_bool g_running{};
     SOCKET g_listener{INVALID_SOCKET};
     std::thread g_thread;
+    std::mutex g_lifecycleMutex;
+    HANDLE g_stopEvent{};
+    bool g_winsockStarted{};
 
     void Log(const char* message) noexcept
     {
         if (g_host.log)
-            g_host.log(g_host.context, message);
+        {
+            try { g_host.log(g_host.context, message); }
+            catch (...) { OutputDebugStringA("DayZ debug plugin: log callback threw.\n"); }
+        }
     }
 
     std::string Handle(const std::string& line)
@@ -70,11 +78,20 @@ namespace
 
     void Serve(SOCKET client)
     {
+        dayz::debug_transport::SocketWait readiness(client, g_stopEvent, FD_READ | FD_WRITE | FD_CLOSE);
+        if (!readiness.Valid())
+            return;
         std::string pending;
         char chunk[512]{};
         while (g_running.load())
         {
             const int received = recv(client, chunk, sizeof(chunk), 0);
+            if (received == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK)
+            {
+                if (!readiness.Wait())
+                    break;
+                continue;
+            }
             if (received <= 0)
                 break;
             pending.append(chunk, static_cast<size_t>(received));
@@ -89,6 +106,12 @@ namespace
                 {
                     const int wrote = send(client, reply.data() + sent,
                         static_cast<int>(reply.size() - sent), 0);
+                    if (wrote == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK)
+                    {
+                        if (!readiness.Wait())
+                            return;
+                        continue;
+                    }
                     if (wrote <= 0)
                         return;
                     sent += static_cast<size_t>(wrote);
@@ -99,25 +122,64 @@ namespace
         }
     }
 
-    void AcceptLoop()
+    void AcceptLoop(SOCKET listener) noexcept
     {
+        dayz::debug_transport::SocketWait readiness(listener, g_stopEvent, FD_ACCEPT | FD_CLOSE);
+        if (!readiness.Valid())
+        {
+            Log("Debug plugin: listener event setup failed");
+            return;
+        }
         while (g_running.load())
         {
-            const SOCKET client = accept(g_listener, nullptr, nullptr);
+            const SOCKET client = accept(listener, nullptr, nullptr);
             if (client == INVALID_SOCKET)
+            {
+                if (WSAGetLastError() == WSAEWOULDBLOCK && readiness.Wait())
+                    continue;
                 break;
-            Serve(client);
+            }
+            try { Serve(client); }
+            catch (...) { Log("Debug plugin: client request failed with an exception"); }
             closesocket(client);
         }
     }
+
+    // Caller holds the lifecycle lock; the worker never takes it.
+    void StopLocked()
+    {
+        g_running.store(false);
+        if (g_stopEvent)
+            SetEvent(g_stopEvent);
+        if (g_thread.joinable())
+            g_thread.join();
+        if (g_listener != INVALID_SOCKET)
+        {
+            closesocket(g_listener);
+            g_listener = INVALID_SOCKET;
+        }
+        if (g_stopEvent)
+        {
+            CloseHandle(g_stopEvent);
+            g_stopEvent = nullptr;
+        }
+        if (g_winsockStarted)
+        {
+            WSACleanup();
+            g_winsockStarted = false;
+        }
+    }
+
 }
 
-extern "C" __declspec(dllexport) int DayzVrDebugStart(const DayzVrDebugHost* host)
+static int StartLocked(const DayzVrDebugHost* host)
 {
     if (!host || host->api_version != DAYZ_VR_DEBUG_API_VERSION ||
         host->struct_size < sizeof(DayzVrDebugHost) || !host->get_state ||
         !host->set_tunable || !host->list_tunables || !host->run_command)
         return -1;
+    if (g_thread.joinable())
+        return -2; // Already started; do not replace callbacks underneath the worker.
     g_host = *host;
 
     WSADATA data{};
@@ -126,10 +188,12 @@ extern "C" __declspec(dllexport) int DayzVrDebugStart(const DayzVrDebugHost* hos
         Log("Debug plugin: WSAStartup failed");
         return -1;
     }
+    g_winsockStarted = true;
     g_listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (g_listener == INVALID_SOCKET)
     {
         Log("Debug plugin: socket() failed");
+        StopLocked();
         return -1;
     }
     sockaddr_in address{};
@@ -143,30 +207,40 @@ extern "C" __declspec(dllexport) int DayzVrDebugStart(const DayzVrDebugHost* hos
         std::snprintf(message, sizeof(message),
             "Debug plugin: bind/listen on 127.0.0.1:%u failed (%d)", host->port, WSAGetLastError());
         Log(message);
-        closesocket(g_listener);
-        g_listener = INVALID_SOCKET;
+        StopLocked();
+        return -1;
+    }
+    g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!g_stopEvent)
+    {
+        Log("Debug plugin: stop event creation failed");
+        StopLocked();
         return -1;
     }
     g_running.store(true);
-    g_thread = std::thread(AcceptLoop);
+    g_thread = std::thread(AcceptLoop, g_listener);
     char message[96]{};
     std::snprintf(message, sizeof(message), "Debug plugin listening on 127.0.0.1:%u", host->port);
     Log(message);
     return 0;
 }
 
+extern "C" __declspec(dllexport) int DayzVrDebugStart(const DayzVrDebugHost* host)
+{
+    std::lock_guard lock(g_lifecycleMutex);
+    try { return StartLocked(host); }
+    catch (...)
+    {
+        StopLocked();
+        Log("Debug plugin: start failed with an exception");
+        return -1;
+    }
+}
+
 extern "C" __declspec(dllexport) void DayzVrDebugStop(void)
 {
-    if (!g_running.exchange(false))
-        return;
-    if (g_listener != INVALID_SOCKET)
-    {
-        closesocket(g_listener);
-        g_listener = INVALID_SOCKET;
-    }
-    if (g_thread.joinable())
-        g_thread.join();
-    WSACleanup();
+    std::lock_guard lock(g_lifecycleMutex);
+    StopLocked();
 }
 
 BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID)

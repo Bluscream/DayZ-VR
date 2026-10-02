@@ -123,6 +123,12 @@ closed merely because its source was edited.
   container and preserves deployed mods/profile data. Mock CLI regressions pass.
 - `78d24ad`: gate now runs 25 Python regressions and native AddressSanitizer and
   UndefinedBehaviorSanitizer tests, including frame policy and GUI sizing.
+- debug plugin lifecycle (P02): lifecycle mutex, `WSAEventSelect` readiness plus a
+  stop event so Stop wakes an idle accepted socket and a blocked accept; repeated
+  Start is rejected (-2); failed starts release Winsock. `tests/debug_plugin_lifecycle_test.cpp`
+  runs the real DLL under the installed Proton in an isolated prefix
+  (`scripts/test-debug-plugin.sh`, part of the gate): occupied port, repeat start,
+  three idle-client restart cycles (<2 s each) and idle accept pass.
 
 Full Windows cross-build and the expanded native/tooling gate passed on 2026-10-02.
 The mapped executable was accepted; 208 instruction mutations, 13 truncations and
@@ -140,7 +146,7 @@ empty input were rejected. These checks do not establish headset visuals or true
 - Native bridge parsing of fully quoted `-profiles=...` arguments needs correction.
   Client/server command validation, internal magazine counts and snapshot freshness
   remain part of S01/S02 follow-up.
-- X09, X11, C02, T04, S01, S02, P01, P02 and H01 remain open. No claim is made that
+- X09, X11, C02, T04, S01, S02, P01 and H01 remain open. No claim is made that
   the project-wide audit findings are all repaired.
 
 ### Live simulator verification — 06:00–06:03 local time

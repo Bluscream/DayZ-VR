@@ -104,6 +104,7 @@ step_test() {
   run_in_container "g++ $gpp_flags -I\"$openxr_sdk/include\" tests/xr_frame_policy_test.cpp -o build/xr_frame_policy_test && ./build/xr_frame_policy_test" 2>&1 | tee "$log_dir/test-xr-frame-policy.log"
   run_in_container "g++ $gpp_flags tests/gui_capture_sizing_test.cpp -o build/gui_capture_sizing_test && ./build/gui_capture_sizing_test" 2>&1 | tee "$log_dir/test-gui-capture-sizing.log"
   run_in_container "g++ $gpp_flags -pthread tests/render_trace_test.cpp -o build/render_trace_test && ./build/render_trace_test" 2>&1 | tee "$log_dir/test-render-trace.log"
+  "$script_dir/test-debug-plugin.sh" 2>&1 | tee "$log_dir/test-debug-plugin.log"
   python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR" "$build_dir/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
   python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR_Server" "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
