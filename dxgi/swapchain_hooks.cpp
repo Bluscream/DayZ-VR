@@ -1,4 +1,5 @@
 #include "swapchain_hooks.hpp"
+#include "present_frame.hpp"
 
 #include "openxr_host.hpp"
 #include "dayz_runtime_probe.hpp"
@@ -19,6 +20,7 @@
 
 namespace
 {
+    static_assert(hooks::kPresentTestFlag == DXGI_PRESENT_TEST);
     using CreateSwapChainFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory*, IUnknown*,
         DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
     using CreateSwapChainForHwndFn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory2*, IUnknown*, HWND,
@@ -251,12 +253,12 @@ namespace
         const auto original = Original<PresentFn>(self, 8);
         if (!original)
             return DXGI_ERROR_INVALID_CALL;
-        TickOpenXr(self);
-        static std::atomic_bool firstPresent{true};
-        if (firstPresent.exchange(false))
-            logging::Info("DXGI Present detour active");
-        const HRESULT result = original(self, syncInterval, flags);
-        return result;
+        return hooks::TickAndPresent(flags, [self] {
+            TickOpenXr(self);
+            static std::atomic_bool firstPresent{true};
+            if (firstPresent.exchange(false))
+                logging::Info("DXGI Present detour active");
+        }, [&] { return original(self, syncInterval, flags); });
     }
 
     HRESULT STDMETHODCALLTYPE HookedPresent1(IDXGISwapChain1* self, UINT syncInterval, UINT flags,
@@ -265,8 +267,8 @@ namespace
         const auto original = Original<Present1Fn>(self, 22);
         if (!original)
             return DXGI_ERROR_INVALID_CALL;
-        TickOpenXr(self);
-        return original(self, syncInterval, flags, parameters);
+        return hooks::TickAndPresent(flags, [self] { TickOpenXr(self); },
+            [&] { return original(self, syncInterval, flags, parameters); });
     }
 
     HRESULT STDMETHODCALLTYPE HookedResizeBuffers(IDXGISwapChain* self, UINT count, UINT width,
