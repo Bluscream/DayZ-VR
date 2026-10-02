@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -32,6 +33,10 @@ namespace
         Expect(ParseCommand("set name").kind == CommandKind::Invalid, "set without value");
         Expect(ParseCommand("set name abc").kind == CommandKind::Invalid, "set non-numeric");
         Expect(ParseCommand("set name 1x").kind == CommandKind::Invalid, "set trailing junk");
+        for (const auto* invalid : {"set x nan", "set x inf", "set x 1e999", "get extra", "ping extra"})
+            Expect(ParseCommand(invalid).kind == CommandKind::Invalid, "reject invalid command");
+        Expect(ParseCommand("set\tx\t1").kind == CommandKind::Set, "tab-separated command");
+        Expect(ParseCommand(std::string("set x 1\0junk", 12)).kind == CommandKind::Invalid, "embedded nul");
         Expect(ParseCommand("").kind == CommandKind::Invalid, "empty");
         Expect(ParseCommand("GET").kind == CommandKind::Invalid, "verbs are case-sensitive");
     }
@@ -62,6 +67,23 @@ namespace
         Expect(json.find('\n') == std::string::npos, "single line");
     }
 
+    void TestHostileState()
+    {
+        DayzVrDebugState state{};
+        std::memset(state.build_profile, 'x', sizeof(state.build_profile));
+        state.host_fps = std::numeric_limits<double>::infinity();
+        state.present_count = std::numeric_limits<decltype(state.present_count)>::max();
+        auto json = FormatState(state);
+        Expect(json.find(std::string(sizeof(state.build_profile), 'x')) != std::string::npos, "bounded full label");
+        Expect(json.find("\"host_fps\":null") != std::string::npos, "nonfinite is null");
+        Expect(json.find("18446744073709551615") != std::string::npos, "integer precision");
+        std::strcpy(state.build_profile, "a\"\\\n");
+        json = FormatState(state);
+        Expect(json.find("a\\\"\\\\\\u000a") != std::string::npos, "escaped label");
+        Expect(FormatTunables("x=nan\ny=1e999\nz=1,2\n") == "{}", "invalid tunable values");
+        Expect(FormatResult(-1, "a\n", "r").find("a\\u000a") != std::string::npos, "escaped error");
+    }
+
     void TestFormatTunables()
     {
         Expect(FormatTunables("a.b=1\nc.d=-0.5\n") == "{\"a.b\":1,\"c.d\":-0.5}", "tunables json");
@@ -81,6 +103,7 @@ int main()
 {
     TestParse();
     TestFormatState();
+    TestHostileState();
     TestFormatTunables();
     TestFormatResult();
     std::cout << "debug_protocol_test: all checks passed\n";

@@ -12,6 +12,9 @@
 
 #include "../common/dayz_vr_debug_api.h"
 
+#include <charconv>
+#include <cmath>
+#include <type_traits>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -43,8 +46,10 @@ namespace dayz::debug_protocol
     {
         Command command;
         line = Trim(line);
-        const auto firstSpace = line.find(' ');
+        const auto firstSpace = line.find_first_of(" \t");
         const std::string_view verb = line.substr(0, firstSpace);
+        if (verb != "set" && firstSpace != std::string_view::npos)
+            return command;
         if (verb == "get")
             command.kind = CommandKind::Get;
         else if (verb == "tunables")
@@ -58,14 +63,15 @@ namespace dayz::debug_protocol
         else if (verb == "set" && firstSpace != std::string_view::npos)
         {
             const std::string_view rest = Trim(line.substr(firstSpace + 1));
-            const auto secondSpace = rest.find(' ');
+            const auto secondSpace = rest.find_first_of(" \t");
             if (secondSpace == std::string_view::npos)
                 return command;
             const std::string_view name = rest.substr(0, secondSpace);
             const std::string valueText(Trim(rest.substr(secondSpace + 1)));
-            char* end{};
-            const double value = std::strtod(valueText.c_str(), &end);
-            if (valueText.empty() || !end || *end != '\0')
+            double value{};
+            const auto parsed = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
+            if (valueText.empty() || parsed.ec != std::errc{} ||
+                parsed.ptr != valueText.data() + valueText.size() || !std::isfinite(value))
                 return command;
             command.kind = CommandKind::Set;
             command.name.assign(name.data(), name.size());
@@ -74,11 +80,48 @@ namespace dayz::debug_protocol
         return command;
     }
 
-    inline void AppendNumber(std::string& out, double value)
+    inline void AppendString(std::string& out, std::string_view value)
     {
+        constexpr char hex[] = "0123456789abcdef";
+        out += '"';
+        for (char c : value)
+        {
+            const auto byte = static_cast<unsigned char>(c);
+            if (c == '"' || c == '\\')
+            {
+                out += '\\';
+                out += c;
+            }
+            else if (byte < 0x20 || byte >= 0x80)
+            {
+                // Host labels are ASCII; escape arbitrary bytes rather than emit invalid UTF-8.
+                out += "\\u00";
+                out += hex[byte >> 4];
+                out += hex[byte & 15];
+            }
+            else
+                out += c;
+        }
+        out += '"';
+    }
+
+    template <typename Number>
+    inline void AppendNumber(std::string& out, Number value)
+    {
+        if constexpr (std::is_floating_point_v<Number>)
+        {
+            if (!std::isfinite(value))
+            {
+                out += "null";
+                return;
+            }
+        }
         char text[64]{};
-        std::snprintf(text, sizeof(text), "%.9g", value);
-        out += text;
+        const auto result = std::to_chars(text, text + sizeof(text), value);
+        if (result.ec == std::errc{})
+            out.append(text, result.ptr);
+        else
+            out += "null";
     }
 
     inline void AppendArray(std::string& out, const float* values, std::size_t count)
@@ -93,7 +136,8 @@ namespace dayz::debug_protocol
         out += ']';
     }
 
-    inline void AppendField(std::string& out, const char* name, double value)
+    template <typename Number>
+    inline void AppendField(std::string& out, const char* name, Number value)
     {
         out += '"';
         out += name;
@@ -140,13 +184,14 @@ namespace dayz::debug_protocol
         AppendBool(out, "window_focused", state.window_focused != 0);
         AppendBool(out, "gui_cursor_mode", state.gui_cursor_mode != 0);
         AppendBool(out, "gui_quad_visible", state.gui_quad_visible != 0);
-        out += "\"build_profile\":\"";
-        for (const char* c = state.build_profile; *c && c < state.build_profile + sizeof(state.build_profile); ++c)
-            if (*c != '"' && *c != '\\')
-                out += *c;
-        out += "\",";
-        AppendField(out, "present_count", static_cast<double>(state.present_count));
-        AppendField(out, "stereo_apply_count", static_cast<double>(state.stereo_apply_count));
+        out += "\"build_profile\":";
+        std::size_t profileLength{};
+        while (profileLength < sizeof(state.build_profile) && state.build_profile[profileLength])
+            ++profileLength;
+        AppendString(out, {state.build_profile, profileLength});
+        out += ',';
+        AppendField(out, "present_count", state.present_count);
+        AppendField(out, "stereo_apply_count", state.stereo_apply_count);
         AppendField(out, "rendered_eye", state.rendered_eye);
         AppendField(out, "host_fps", state.host_fps);
         AppendBool(out, "hmd_valid", state.hmd_valid != 0);
@@ -192,13 +237,18 @@ namespace dayz::debug_protocol
             const auto equals = line.find('=');
             if (line.empty() || equals == std::string_view::npos)
                 continue;
+            const auto valueText = Trim(line.substr(equals + 1));
+            double value{};
+            const auto parsed = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
+            if (equals == 0 || valueText.empty() || parsed.ec != std::errc{} ||
+                parsed.ptr != valueText.data() + valueText.size() || !std::isfinite(value))
+                continue;
             if (!first)
                 out += ',';
             first = false;
-            out += '"';
-            out.append(line.data(), equals);
-            out += "\":";
-            out.append(line.data() + equals + 1, line.size() - equals - 1);
+            AppendString(out, line.substr(0, equals));
+            out += ':';
+            AppendNumber(out, value);
         }
         out += '}';
         return out;
@@ -208,9 +258,9 @@ namespace dayz::debug_protocol
     {
         if (code == 0)
             return "{\"ok\":true}";
-        std::string out{"{\"ok\":false,\"error\":\""};
-        out += code == -1 ? unknownText : rejectedText;
-        out += "\"}";
+        std::string out{"{\"ok\":false,\"error\":"};
+        AppendString(out, code == -1 ? unknownText : rejectedText);
+        out += '}';
         return out;
     }
 }
