@@ -175,10 +175,8 @@ bool OpenXrHost::DumpEyeCaptures() noexcept
 {
     if (!gameFrameSource_)
         return false;
-    std::wstring directory = ConfigurationPath();
-    const auto separator = directory.find_last_of(L"\\/");
-    directory = separator == std::wstring::npos ? L"." : directory.substr(0, separator);
-    return gameFrameSource_->DumpCaptures(directory);
+    eyeDumpRequested_.store(true, std::memory_order_release);
+    return true;
 }
 
 bool OpenXrHost::Check(XrResult result, const char* operation) const noexcept
@@ -767,9 +765,9 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     if (gameSwapChain_)
         gameFrameSource_ = std::make_unique<DayZFrameSource>(gameSwapChain_.Get(), device_.Get(),
             context_.Get());
-    dayz::stereo_state::SetEyeCaptureCallback([](unsigned eye) {
-        if (OpenXrHost::Instance().gameFrameSource_)
-            OpenXrHost::Instance().gameFrameSource_->PrepareFrame(eye);
+    dayz::stereo_state::SetEyeCaptureCallback([](unsigned eye, void* resource) {
+        auto& source = OpenXrHost::Instance().gameFrameSource_;
+        return source && source->CaptureIfBackBuffer(eye, resource);
     });
     initialized_ = true;
     logging::Info("OpenXR host initialized");
@@ -1243,8 +1241,16 @@ void OpenXrHost::RenderFrame()
         if (guiVisible && (!guiQuadWasVisible_ || !guiQuadAnchored_))
             AnchorGuiQuad(views_[0].pose);
         SyncControllerInput(frameState.predictedDisplayTime, guiVisible);
-        if (gameFrameSource_ && !dayz::stereo_state::ConsumeBothEyesCaptured())
+        if (gameFrameSource_)
             gameFrameSource_->PrepareFrame(dayz::stereo_state::RenderedEye());
+        if (gameFrameSource_ && eyeDumpRequested_.exchange(false, std::memory_order_acq_rel))
+        {
+            std::wstring directory = ConfigurationPath();
+            const auto separator = directory.find_last_of(L"\\/");
+            directory = separator == std::wstring::npos ? L"." : directory.substr(0, separator);
+            logging::Info(gameFrameSource_->DumpCaptures(directory) ?
+                "Eye captures written beside DayZ_x64.exe" : "Eye capture dump failed");
+        }
         static std::uint64_t logCounter{};
         static auto lastLog = std::chrono::steady_clock::now();
         if (++logCounter % 120 == 0)

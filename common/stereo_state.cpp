@@ -221,7 +221,6 @@ namespace dayz::stereo_state
     namespace
     {
         std::atomic<EyeCaptureCallback> g_eyeCapture{nullptr};
-        std::atomic<bool> g_bothEyesCaptured{false};
     }
 
     void SetRenderedEye(unsigned eye) noexcept
@@ -234,22 +233,27 @@ namespace dayz::stereo_state
         g_eyeCapture.store(callback, std::memory_order_release);
     }
 
-    bool CaptureEyeNow(unsigned eye) noexcept
+    bool CaptureEyeIfBackBuffer(unsigned eye, void* d3dResource) noexcept
     {
         const EyeCaptureCallback callback = g_eyeCapture.load(std::memory_order_acquire);
-        if (!callback)
-            return false;
-        callback(eye & 1u);
-        return true;
+        return callback && callback(eye & 1u, d3dResource);
     }
 
-    void MarkBothEyesCaptured() noexcept
+    namespace
     {
-        g_bothEyesCaptured.store(true, std::memory_order_relaxed);
+        std::atomic<unsigned> g_backWidth{0};
+        std::atomic<unsigned> g_backHeight{0};
     }
 
-    bool ConsumeBothEyesCaptured() noexcept
+    void SetBackBufferSize(unsigned width, unsigned height) noexcept
     {
-        return g_bothEyesCaptured.exchange(false, std::memory_order_relaxed);
+        g_backWidth.store(width, std::memory_order_relaxed);
+        g_backHeight.store(height, std::memory_order_relaxed);
+    }
+
+    void GetBackBufferSize(unsigned& width, unsigned& height) noexcept
+    {
+        width = g_backWidth.load(std::memory_order_relaxed);
+        height = g_backHeight.load(std::memory_order_relaxed);
     }
 }

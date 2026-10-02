@@ -60,15 +60,17 @@ namespace dayz::stereo_state
     unsigned RenderedEye() noexcept;
     void AdvanceEye() noexcept;
     void SetRenderedEye(unsigned eye) noexcept;
-    // Mid-frame eye capture used by stereo_mode=double: the host registers a
-    // callback that copies the current backbuffer into the given eye's capture.
-    using EyeCaptureCallback = void (*)(unsigned eye);
+    // Mid-frame eye capture used by stereo_mode=double. DayZ submits D3D work
+    // from its own render thread, so the capture runs inside that command
+    // stream: the probe calls this from the ClearRenderTargetView hook with the
+    // resource about to be cleared, and the host copies it into the eye's
+    // capture if it is the backbuffer. Returns true when captured.
+    using EyeCaptureCallback = bool (*)(unsigned eye, void* d3dResource);
     void SetEyeCaptureCallback(EyeCaptureCallback callback) noexcept;
-    bool CaptureEyeNow(unsigned eye) noexcept;
-    // Set by the double-render hook when both eyes were captured this frame, so
-    // the present-time capture is skipped; reading clears it.
-    void MarkBothEyesCaptured() noexcept;
-    bool ConsumeBothEyesCaptured() noexcept;
+    bool CaptureEyeIfBackBuffer(unsigned eye, void* d3dResource) noexcept;
+    // Backbuffer dimensions published by the frame source (0 until known).
+    void SetBackBufferSize(unsigned width, unsigned height) noexcept;
+    void GetBackBufferSize(unsigned& width, unsigned& height) noexcept;
     void SetImageShift(float shift) noexcept;
     float ImageShift() noexcept;
     void SetPresentation(FitMode fitMode, float scaleX, float scaleY) noexcept;

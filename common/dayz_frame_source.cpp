@@ -178,6 +178,7 @@ bool DayZFrameSource::EnsureCaptureTexture(
     sourceWidth_ = description.Width;
     sourceHeight_ = description.Height;
     sourceFormat_ = description.Format;
+    dayz::stereo_state::SetBackBufferSize(sourceWidth_, sourceHeight_);
     std::ostringstream message;
     message << "DayZ backbuffer capture ready: " << sourceWidth_ << 'x' << sourceHeight_
             << " format=" << static_cast<int>(sourceFormat_);
@@ -344,4 +345,39 @@ bool DayZFrameSource::DumpCaptures(const std::wstring& directory) noexcept
         any = true;
     }
     return any;
+}
+
+bool DayZFrameSource::CaptureIfBackBuffer(std::uint32_t sourceEye, void* resource) noexcept
+{
+    // DayZ never clears the backbuffer itself; the first clear of any
+    // backbuffer-sized target marks the start of the next pass in its command
+    // stream, at which point the backbuffer holds the finished previous pass.
+    if (!pipelineReady_ || !resource)
+        return false;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    static_cast<IUnknown*>(resource)->QueryInterface(IID_PPV_ARGS(&texture));
+    if (!texture)
+        return false;
+    D3D11_TEXTURE2D_DESC description{};
+    texture->GetDesc(&description);
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(swapChain_->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+        return false;
+    D3D11_TEXTURE2D_DESC backDescription{};
+    backBuffer->GetDesc(&backDescription);
+    if (description.Width != backDescription.Width || description.Height != backDescription.Height)
+        return false;
+    PrepareFrame(sourceEye);
+    static int logged{};
+    if (logged < 2)
+    {
+        ++logged;
+        std::ostringstream message;
+        message << "Mid-frame eye capture: backbuffer copied for eye " << sourceEye
+                << " before clear of " << description.Width << 'x' << description.Height
+                << " fmt=" << static_cast<int>(description.Format)
+                << " samples=" << description.SampleDesc.Count;
+        logging::Info(message.str());
+    }
+    return true;
 }

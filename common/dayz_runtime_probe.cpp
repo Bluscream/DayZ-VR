@@ -131,6 +131,14 @@ namespace
     using DrawIndexedFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, INT);
     using DrawFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT);
     OmSetRenderTargetsFn g_omSetRenderTargets{};
+    // stereo_mode=double: DayZ's render thread lags the world-render calls by
+    // more than a pass, so pass boundaries are found in its own command stream:
+    // each pass starts by clearing a backbuffer-sized target. The count resets
+    // at Present; the left image is captured right before the second clear.
+    std::atomic<unsigned> g_frameClearCount{0};
+    // Context of the per-frame projection dispatch (mode 1): DayZ builds the
+    // view matrices there once per frame, so each eye pass re-dispatches it.
+    OpaqueContext* g_lastProjectionContext{};
     RsSetViewportsFn g_rsSetViewports{};
     ClearRtvFn g_clearRtv{};
     ClearDsvFn g_clearDsv{};
@@ -1392,6 +1400,11 @@ float4 PSMain(VertexOutput input) : SV_Target
         // HMD here in case game-side camera state was refreshed in between.
         if (g_hmdRotationEnabled && camera && camera == g_lastHmdCamera)
             ApplyHmdRotationToCamera(camera);
+        // stereo_mode=double: the projection dispatch applied the eye offset once
+        // before the first pass; the second pass prepares the same camera again,
+        // so re-apply for whichever eye is current.
+        if (g_stereoDouble && mode == 1 && camera)
+            ApplyAlternateEye(camera);
         const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
         const std::uintptr_t callerRva = caller >= g_moduleBase &&
             caller < g_moduleBase + kImageSize ? caller - g_moduleBase : 0;
@@ -1426,6 +1439,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         return g_executeView(engine, context, mode);
     }
 
+    std::uintptr_t __fastcall HookedProjectionDispatch(OpaqueContext* context, std::uint8_t mode);
+
     bool WorldRenderSignatureMatches() noexcept
     {
         static constexpr std::uint8_t worldRender[] = {
@@ -1448,23 +1463,25 @@ float4 PSMain(VertexOutput input) : SV_Target
         }
         const std::uintptr_t saved0 = slots[0];
         const std::uintptr_t saved1 = slots[1];
+        OpaqueContext* projection = g_lastProjectionContext;
         dayz::stereo_state::SetRenderedEye(0);
+        if (projection)
+            HookedProjectionDispatch(projection, 1);
         g_worldRender(engine, frame, slots);
-        const bool capturedLeft = dayz::stereo_state::CaptureEyeNow(0);
+        // The left image is captured by the clear hook at the start of the
+        // right pass in DayZ's command stream; the right image at Present.
         slots[0] = saved0;
         slots[1] = saved1;
         dayz::stereo_state::SetRenderedEye(1);
+        if (projection)
+            HookedProjectionDispatch(projection, 1);
         g_worldRender(engine, frame, slots);
-        const bool capturedRight = dayz::stereo_state::CaptureEyeNow(1);
-        if (capturedLeft && capturedRight)
-            dayz::stereo_state::MarkBothEyesCaptured();
         const std::uint64_t frames = g_doubleRenderFrames.fetch_add(1) + 1;
         if (frames == 1 || frames % 600 == 0)
         {
             std::ostringstream message;
             message << "Double world render frame " << frames << " slot0=" << std::hex << saved0
-                    << " slot1=" << saved1 << std::dec << " captured=" << capturedLeft << ','
-                    << capturedRight << " tid=" << GetCurrentThreadId();
+                    << " slot1=" << saved1 << std::dec << " tid=" << GetCurrentThreadId();
             logging::Info(message.str());
         }
     }
@@ -1482,6 +1499,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         ApplyActiveCameraFovOverride();
         EnsureCameraRefreshHook(context);
         ApplyAlternateEye(ReadField<OpaqueCamera*>(context, kContextCamera));
+        if (mode == 1)
+            g_lastProjectionContext = context;
         Record(EventKind::Projection, context, mode);
         OpaqueCamera* previousProjectionCamera = g_projectionContextCamera;
         g_projectionContextCamera = ReadField<OpaqueCamera*>(context, kContextCamera);
@@ -2077,6 +2096,27 @@ float4 PSMain(VertexOutput input) : SV_Target
         {
             event->object0 = target;
             DescribeResource(target, *event);
+        }
+        if (g_stereoDouble && target)
+        {
+            Microsoft::WRL::ComPtr<ID3D11Resource> resource;
+            target->GetResource(&resource);
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+            if (resource)
+                resource.As(&texture);
+            unsigned backWidth{};
+            unsigned backHeight{};
+            dayz::stereo_state::GetBackBufferSize(backWidth, backHeight);
+            D3D11_TEXTURE2D_DESC description{};
+            if (texture)
+                texture->GetDesc(&description);
+            if (texture && backWidth && description.Width == backWidth &&
+                description.Height == backHeight)
+            {
+                const unsigned count = g_frameClearCount.fetch_add(1, std::memory_order_acq_rel) + 1;
+                if (count == 2)
+                    dayz::stereo_state::CaptureEyeIfBackBuffer(0, resource.Get());
+            }
         }
         g_clearRtv(self, target, color);
     }
@@ -3215,6 +3255,8 @@ namespace dayz::runtime_probe
         g_captureApi.store(frame < 12 || frame % 120 == 119, std::memory_order_relaxed);
         if (g_alternateEyeEnabled && !g_stereoDouble)
             dayz::stereo_state::AdvanceEye();
+        if (g_stereoDouble)
+            g_frameClearCount.store(0, std::memory_order_release);
         if (frame > 12 && frame % 120 != 0)
             return;
 

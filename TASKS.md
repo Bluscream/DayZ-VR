@@ -5,17 +5,27 @@ Living backlog. Tracks are never "done": each keeps a *State* (what exists today
 detour. Update the entry when you touch the track; keep history in git, not here.
 
 ## R1. True per-frame stereo (double world render)
-- State: alternate-eye only (one eye per game frame, `[stereo] alternate_eye`), so each
-  eye gets half the game frame rate and the eyes are temporally offset. Ghidra shows the
-  world render at DayZ+0x8E7650 (1.29.163709): prepareView(mode 1), execute+finalize,
-  a 3-pass loop, then a consumed slot `*param_3 = 0`. Hook plan: call it twice per frame
-  with the eye toggled between calls, restoring `param_3[0..1]`, capturing the backbuffer
-  after each call (mid-frame capture callback from the host's frame source).
-- Next: add `worldRenderRva` to the build profile with a byte signature, implement
-  `[stereo] stereo_mode=double` behind a flag, test on the sim rig, add an eye-dump
-  debug command (BMP) to inspect both captures headless.
-- Open: is the backbuffer the final scene image after 0x8E7650 or only after a later
-  composite? Are the 3-pass loop / arena cursor idempotent within one frame? GPU cost.
+- State: `[stereo] stereo_mode=double` exists (experimental, off by default). It hooks the
+  world render (1.29.163709 DayZ+0x8E7650, signature verified), runs it twice per frame
+  with the eye toggled, re-dispatches the projection (DayZ+0x952000) per eye because the
+  view matrices are built there once per frame, restores the consumed descriptor slot,
+  and captures the left image inside DayZ's own render thread (the game submits D3D from
+  a separate thread that lags the world-render calls by more than a pass): the left eye
+  is copied from the backbuffer right before the second backbuffer-sized clear of the
+  frame, the right eye at Present. Verified on the sim: both passes render, no crash,
+  ~same fps as alternate (game is CPU-bound), `dump-eyes` writes both captures.
+  **Finding:** the eye images stay identical even at camera_separation=0.6 and
+  hmd_position_scale=60, so DayZ does not take the render translation from the camera
+  field we write (+0x2C). That means positional head tracking and eye separation have
+  never had any effect; the current stereo is mono with rotation only. Rotation writes
+  (+0x08..+0x20) are honoured. The HUD is drawn into the backbuffer during the pass, so
+  captures include it.
+- Next: Ghidra the projection dispatch (0x952000, caller 0x85FDB1) and the prepare path
+  to find where the view translation really comes from (a separate world-origin /
+  double-precision position, or a copy taken before our write); then write there per
+  eye. Until then keep stereo_mode=alternate as default.
+- Open: HUD duplicated per eye in double mode (fine) but drawn with the mouse-remapped
+  cursor; GPU cost on the real rig.
 
 ## R2. Depth-based second eye (fallback rendering mode)
 - State: idea only. The probe already records depth-stencil state per draw (ALPHA dump),
@@ -45,9 +55,18 @@ detour. Update the entry when you touch the track; keep history in git, not here
 - Open: UI drawing from Lua needs a text/quad renderer (see U1).
 
 ## S2. Enforce Script bridge (DayZ-side data)
-- State: DayZ Standalone mods are Enforce Script (not SQF). Research pending on file IO
-  (`$profile:` files, per-frame feasibility), PBO tooling on Linux, server-side
-  verifySignatures constraints for client-only mods.
+- State: DayZ Standalone mods are Enforce Script (not SQF). Research done (sources:
+  `dta/scripts.pbo` 1_Core/proto/EnSystem.c, 3_Game/DayZGame.c, 5_Mission/missionGameplay.c):
+  file IO is `OpenFile/FPrint/FPrintln/FGets/CloseFile`, `JsonFileLoader<T>`, writable
+  roots only `$profile:` and `$saves:`, no sockets/pipes/FFI anywhere in the script API.
+  Per-frame hook: `modded class MissionGameplay { override void OnUpdate(float dt) }` or
+  `g_Game.GetUpdateQueue(CALL_CATEGORY_GAMEPLAY).Insert(fn)`. Game data: weapon
+  `GetMagazine(GetCurrentMuzzle()).GetAmmoCount()`, `GetHealth("","Health"/"Blood")`,
+  `GetStaminaHandler().GetStamina()`, `g_Game.IsInventoryOpen()`, `GetMovementState()`
+  stance, `GetTransport()` vehicles. Packaging: `@DayZVR/addons/*.pbo` with config.cpp
+  CfgPatches/CfgMods script modules; no PBO tool installed anywhere on this host, the
+  format is simple enough to write in Python. Servers with verifySignatures need the
+  mod's .bikey; the local test server can run verifySignatures=0.
 - Next: native side writes `$profile:dayzvr/vr.json` (poses, buttons) each N frames and
   reads `$profile:dayzvr/game.json` (ammo, health, stance, inventory open) written by a
   sample client mod in `enforce/@DayZVR`; build script for the PBO.

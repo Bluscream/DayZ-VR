@@ -13,6 +13,7 @@ public:
         ID3D11DeviceContext* immediateContext) noexcept;
 
     void PrepareFrame(std::uint32_t sourceEye = 0) noexcept override;
+    bool CaptureIfBackBuffer(std::uint32_t sourceEye, void* resource) noexcept override;
     bool HasGameData() const noexcept override { return ready_[0] || ready_[1]; }
     void RenderEye(const EyeRenderInfo& eye) noexcept override;
     // Writes the captured eye textures as <directory>\\dayz_openxr_eye<N>.bmp (debug).

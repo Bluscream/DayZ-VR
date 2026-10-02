@@ -3,6 +3,7 @@
 #include "frame_source.hpp"
 #include "xr_structure.hpp"
 
+#include <atomic>
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #ifndef XR_USE_PLATFORM_WIN32
@@ -24,7 +25,9 @@ class OpenXrHost
 {
 public:
     static OpenXrHost& Instance() noexcept;
-    // Debug: write the captured eye images as BMP beside DayZ_x64.exe.
+    // Debug: request the captured eye images be written as BMP beside
+    // DayZ_x64.exe. Executed on the render thread at the next frame because
+    // the immediate context must not be used from the debug plugin thread.
     bool DumpEyeCaptures() noexcept;
 
     bool InitializeWithDevice(ID3D11Device* device) noexcept;
@@ -109,6 +112,7 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain> gameSwapChain_;
     std::unique_ptr<IFrameSource> debugFrameSource_;
     std::unique_ptr<IFrameSource> gameFrameSource_;
+    std::atomic<bool> eyeDumpRequested_{false};
     std::array<EyeSwapchain, 2> eyeSwapchains_{};
     GuiSwapchain guiSwapchain_{};
     AxisSwapchain axisSwapchain_{};
