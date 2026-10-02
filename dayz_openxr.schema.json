@@ -415,6 +415,38 @@
           "default": "true",
           "live": true
         },
+        "prepare_translation": {
+          "title": "Translate before scene preparation",
+          "description": "Write the eye and head translation into DayZ's primary camera before every scene preparation (not only in the projection dispatch), where the engine fixes object placement relative to the camera. Needed for eye separation and positional tracking to reach the image.",
+          "type": "bool",
+          "default": "true",
+          "live": true
+        },
+        "frame_records": {
+          "title": "Per-frame pose records",
+          "description": "File one frozen headset sample per game frame where the pose is applied; Present looks it up frame_lag frames later to store the capture under the right eye and submit the rendered pose.",
+          "type": "bool",
+          "default": "true",
+          "live": true
+        },
+        "frame_lag": {
+          "title": "Frame lag",
+          "description": "Game-to-Present pipeline depth in frames (1 on 1.29.163709, measured by the parallax sign of the eye captures). A wrong value swaps the eyes.",
+          "type": "float",
+          "default": "1",
+          "min": 0.0,
+          "max": 8.0,
+          "step": 1.0,
+          "unit": "frames",
+          "live": true
+        },
+        "submit_rendered_pose": {
+          "title": "Submit rendered pose",
+          "description": "Hand the compositor the view pose each eye image was rendered with (from the frame record) so it reprojects to the display pose; off submits the newest pose.",
+          "type": "bool",
+          "default": "true",
+          "live": true
+        },
         "hmd_aim_loop_damping": {
           "title": "Loop damping",
           "description": "Fraction of the remaining aim error corrected per frame. Lower is smoother and slower.",

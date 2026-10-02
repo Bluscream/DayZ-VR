@@ -261,6 +261,39 @@ namespace
     // hands drawn in head space, shaking). Rendering the residual on the render side
     // keeps the eyes exactly on the head while DayZ's aim catches up underneath.
     bool g_aimResidualRender{true};
+    // [stereo] prepare_translation: write the eye/head translation before the scene
+    // preparation (mode 0 and 1), not only in the projection dispatch.
+    bool g_stereoPrepareTranslation{true};
+    // [stereo] frame_records: one frozen HMD sample per game frame, filed at the early
+    // FrameBase refresh; frame_lag frames later Present finds it again (eye for the
+    // capture, pose for the compositor).
+    bool g_frameRecords{true};
+    float g_frameLag{1.0f};
+    bool g_submitRenderedPose{true};
+
+    // The HMD sample the camera code works with: the frame's frozen record while frame
+    // records are on and a frame has begun, otherwise the latest sample.
+    dayz::stereo_state::HmdOrientation FrameHmdOrientation() noexcept
+    {
+        if (g_frameRecords)
+        {
+            const dayz::stereo_state::FrameRecord frame = dayz::stereo_state::CurrentFrame();
+            if (frame.valid)
+                return frame.orientation;
+        }
+        return dayz::stereo_state::GetHmdOrientation();
+    }
+
+    dayz::stereo_state::HmdPosition FrameHmdPosition() noexcept
+    {
+        if (g_frameRecords)
+        {
+            const dayz::stereo_state::FrameRecord frame = dayz::stereo_state::CurrentFrame();
+            if (frame.valid)
+                return frame.position;
+        }
+        return dayz::stereo_state::GetHmdPosition();
+    }
 
     bool VehicleViewLocked() noexcept
     {
@@ -910,15 +943,13 @@ float4 PSMain(VertexOutput input) : SV_Target
         const Vec3 upUnit = normalizeAxis(up);
         const Vec3 forwardUnit = normalizeAxis(forward);
         Vec3 positionalOffset{};
-        const dayz::stereo_state::HmdPosition hmdPosition =
-            dayz::stereo_state::GetHmdPosition();
+        const dayz::stereo_state::HmdPosition hmdPosition = FrameHmdPosition();
         if (hmdPosition.valid)
         {
             if (!g_haveHmdPositionCenter)
             {
                 g_hmdPositionCenter = hmdPosition;
-                const dayz::stereo_state::HmdOrientation centerOrientation =
-                    dayz::stereo_state::GetHmdOrientation();
+                const dayz::stereo_state::HmdOrientation centerOrientation = FrameHmdOrientation();
                 if (centerOrientation.valid)
                     g_hmdPositionOrientationCenter = Normalize({centerOrientation.x,
                         centerOrientation.y, centerOrientation.z, centerOrientation.w});
@@ -928,8 +959,7 @@ float4 PSMain(VertexOutput input) : SV_Target
             const float dy = (hmdPosition.y - g_hmdPositionCenter.y) * g_hmdPositionScale;
             const float dz = (hmdPosition.z - g_hmdPositionCenter.z) * g_hmdPositionScale;
             Vec3 trackingDelta{dx, dy, dz};
-            const dayz::stereo_state::HmdOrientation currentOrientation =
-                dayz::stereo_state::GetHmdOrientation();
+            const dayz::stereo_state::HmdOrientation currentOrientation = FrameHmdOrientation();
             if (currentOrientation.valid)
             {
                 const Quaternion currentHmd = Normalize({currentOrientation.x,
@@ -1091,8 +1121,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     {
         if (!g_hmdRotationEnabled)
             return;
-        const dayz::stereo_state::HmdOrientation orientation =
-            dayz::stereo_state::GetHmdOrientation();
+        const dayz::stereo_state::HmdOrientation orientation = FrameHmdOrientation();
         if (!orientation.valid)
             return;
         if (!camera)
@@ -1372,10 +1401,44 @@ float4 PSMain(VertexOutput input) : SV_Target
         // getter is too late: several consumers have already cached the old pose.
         const bool primaryProjectionCamera = g_projectionRefreshDepth != 0 &&
             camera == g_projectionContextCamera;
-        if (primaryProjectionCamera)
+        // The in-world frame function refreshes the same camera once more at the start
+        // of the frame (camera FOV update, DayZ+0x4B7AD0) before the scene passes that
+        // place objects relative to the camera position; the eye/head translation and
+        // the HMD rotation must already be in the camera there.
+        const bool earlyPrimaryCamera = g_stereoPrepareTranslation && g_projectionRefreshDepth == 0 &&
+            camera && camera == g_lastHmdCamera;
+        if (earlyPrimaryCamera && g_frameRecords)
+        {
+            // One game frame begins here: freeze the HMD sample and pick the eye.
+            dayz::stereo_state::BeginGameFrame(g_alternateEyeEnabled && !g_stereoDouble);
+        }
+        if (primaryProjectionCamera || earlyPrimaryCamera)
         {
             ApplyHmdRotationToCamera(camera);
             ApplyAlternateEye(camera);
+        }
+        if (camera && camera == g_lastHmdCamera)
+        {
+            const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+            const std::uintptr_t callerRva = caller >= g_moduleBase &&
+                caller < g_moduleBase + kImageSize ? caller - g_moduleBase : 0;
+            static std::atomic<std::uintptr_t> loggedCallers[8]{};
+            for (auto& recorded : loggedCallers)
+            {
+                const std::uintptr_t seen = recorded.load(std::memory_order_relaxed);
+                if (seen == callerRva + 1)
+                    break;
+                std::uintptr_t empty{};
+                if (seen == 0 && recorded.compare_exchange_strong(empty, callerRva + 1))
+                {
+                    std::ostringstream message;
+                    message << "Frame refresh of the primary camera from DayZ+0x" << std::hex << callerRva
+                            << " projectionDepth=" << std::dec << g_projectionRefreshDepth
+                            << " rebuild=" << static_cast<int>(rebuild);
+                    logging::Info(message.str());
+                    break;
+                }
+            }
         }
         const std::uintptr_t result = g_frameRefresh(camera, engine, rebuild);
         return result;
@@ -1525,10 +1588,19 @@ float4 PSMain(VertexOutput input) : SV_Target
         // HMD here in case game-side camera state was refreshed in between.
         if (g_hmdRotationEnabled && camera && camera == g_lastHmdCamera)
             ApplyHmdRotationToCamera(camera);
+        // The mode-0 preparation traverses the scene with the camera position it finds
+        // here, before the projection dispatch refreshes the FrameBase; a translation
+        // written only in the dispatch never reached the image. Apply the eye and head
+        // offset to the primary camera before every preparation.
+        if (camera && (camera == g_lastHmdCamera || camera == g_projectionContextCamera) &&
+            g_stereoPrepareTranslation)
+        {
+            ApplyAlternateEye(camera);
+        }
         // stereo_mode=double: the projection dispatch applied the eye offset once
         // before the first pass; the second pass prepares the same camera again,
         // so re-apply for whichever eye is current.
-        if (g_stereoDouble && mode == 1 && camera)
+        else if (g_stereoDouble && mode == 1 && camera)
         {
             ApplyAlternateEye(camera);
         }
@@ -3210,6 +3282,10 @@ namespace dayz::runtime_probe
         g_lockHmdPitch = ReadBoolean(L"stereo", L"lock_pitch", false);
         g_vehicleLockView = ReadBoolean(L"vehicle", L"lock_view", true);
         g_aimResidualRender = ReadBoolean(L"stereo", L"aim_residual_render", true);
+        g_stereoPrepareTranslation = ReadBoolean(L"stereo", L"prepare_translation", true);
+        g_frameRecords = ReadBoolean(L"stereo", L"frame_records", true);
+        g_frameLag = ReadFloat(L"stereo", L"frame_lag", 1.0f);
+        g_submitRenderedPose = ReadBoolean(L"stereo", L"submit_rendered_pose", true);
         g_hmdAimClosedLoop = ReadBoolean(L"stereo", L"hmd_aim_closed_loop", true);
         g_controllerAim = ReadBoolean(L"stereo", L"controller_aim", false);
         g_aimLoopDamping = ReadFloat(L"stereo", L"hmd_aim_loop_damping", 0.5f);
@@ -3468,8 +3544,36 @@ namespace dayz::runtime_probe
         const std::uint32_t drawStateCount = g_drawStateEventCount.exchange(0,
             std::memory_order_acq_rel);
         g_captureApi.store(frame < 12 || frame % 120 == 119, std::memory_order_relaxed);
-        if (g_alternateEyeEnabled && !g_stereoDouble)
+        if (g_alternateEyeEnabled && !g_stereoDouble && !g_frameRecords)
             dayz::stereo_state::AdvanceEye();
+        if (g_frameRecords)
+        {
+            dayz::stereo_state::SetFrameLag(static_cast<unsigned>((std::max)(0.0f, g_frameLag) + 0.5f));
+            dayz::stereo_state::SetSubmitRenderedPose(g_submitRenderedPose);
+            if (frame % 120 == 0)
+            {
+                dayz::stereo_state::FrameRecord presented{};
+                const bool have = dayz::stereo_state::PresentedRecord(dayz::stereo_state::FrameLag(), presented);
+                const dayz::stereo_state::HmdOrientation latest = dayz::stereo_state::GetHmdOrientation();
+                float yawDeltaDegrees{};
+                if (have && latest.valid)
+                {
+                    const auto yawOf = [](const dayz::stereo_state::HmdOrientation& q) {
+                        return std::atan2(2.0f * (q.w * q.y + q.x * q.z),
+                            1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+                    };
+                    yawDeltaDegrees = std::remainder(yawOf(latest) - yawOf(presented.orientation),
+                        2.0f * 3.14159265358979323846f) * 180.0f / 3.14159265358979323846f;
+                }
+                std::ostringstream message;
+                message << "Frame records: latest=" << dayz::stereo_state::LatestFrameIndex()
+                        << " presented=" << (have ? presented.index : 0) << " lag=" << dayz::stereo_state::FrameLag()
+                        << " eye=" << (have ? presented.eye : 9) << " valid=" << (have && presented.valid)
+                        << " head yaw moved since render=" << yawDeltaDegrees << " deg"
+                        << " submit_rendered_pose=" << g_submitRenderedPose;
+                logging::Info(message.str());
+            }
+        }
         if (g_stereoDouble)
         {
             const unsigned clears = g_frameClearCount.exchange(0, std::memory_order_acq_rel);
@@ -3643,6 +3747,10 @@ namespace dayz::runtime_probe
             {"stereo.lock_pitch", TunableKind::Bool, &g_lockHmdPitch, 0.0f, 1.0f},
             {"vehicle.lock_view", TunableKind::Bool, &g_vehicleLockView, 0.0f, 1.0f},
             {"stereo.aim_residual_render", TunableKind::Bool, &g_aimResidualRender, 0.0f, 1.0f},
+            {"stereo.prepare_translation", TunableKind::Bool, &g_stereoPrepareTranslation, 0.0f, 1.0f},
+            {"stereo.frame_records", TunableKind::Bool, &g_frameRecords, 0.0f, 1.0f},
+            {"stereo.frame_lag", TunableKind::Float, &g_frameLag, 0.0f, 8.0f},
+            {"stereo.submit_rendered_pose", TunableKind::Bool, &g_submitRenderedPose, 0.0f, 1.0f},
             {"stereo.hmd_aim_closed_loop", TunableKind::Bool, &g_hmdAimClosedLoop, 0.0f, 1.0f},
             {"stereo.controller_aim", TunableKind::Bool, &g_controllerAim, 0.0f, 1.0f},
             {"stereo.double_capture_clear", TunableKind::Float, &g_doubleCaptureClear, 1.0f, 64.0f},

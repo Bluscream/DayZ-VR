@@ -13,7 +13,15 @@ namespace
     dayz::stereo_state::HmdPosition g_hmdPosition{};
     dayz::stereo_state::CameraDirections g_cameraDirections{};
     dayz::stereo_state::HmdOrientation g_aimOrientation{};
+    dayz::stereo_state::ViewPose g_views[2]{};
+    bool g_viewsValid{};
+    constexpr std::size_t kFrameRecords = 16;
+    dayz::stereo_state::FrameRecord g_records[kFrameRecords]{};
+    std::uint64_t g_nextFrameIndex{1};
+    dayz::stereo_state::FrameRecord g_currentFrame{};
     std::atomic_uint g_eye{};
+    std::atomic_uint g_frameLag{1};
+    std::atomic_bool g_submitRenderedPose{true};
     std::atomic<float> g_imageShift{};
     std::atomic_uint g_fitMode{static_cast<unsigned>(dayz::stereo_state::FitMode::Contain)};
     std::atomic<float> g_scaleX{1.0f};
@@ -72,12 +80,69 @@ namespace dayz::stereo_state
         return g_cameraDirections;
     }
 
+    void UpdateHmdViews(const ViewPose& left, const ViewPose& right) noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        g_views[0] = left;
+        g_views[1] = right;
+        g_viewsValid = true;
+    }
+
+    std::uint64_t BeginGameFrame(bool alternate) noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        FrameRecord record{};
+        record.index = g_nextFrameIndex++;
+        record.eye = alternate ? static_cast<unsigned>(record.index & 1u) : 0u;
+        record.orientation = g_orientation;
+        record.position = g_hmdPosition;
+        record.views[0] = g_views[0];
+        record.views[1] = g_views[1];
+        record.valid = g_orientation.valid && g_viewsValid;
+        g_records[record.index % kFrameRecords] = record;
+        g_currentFrame = record;
+        g_eye.store(record.eye, std::memory_order_relaxed);
+        return record.index;
+    }
+
+    FrameRecord CurrentFrame() noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        return g_currentFrame;
+    }
+
+    bool PresentedRecord(unsigned lag, FrameRecord& out) noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        const std::uint64_t latest = g_nextFrameIndex - 1;
+        if (latest == 0 || lag > latest || lag >= kFrameRecords)
+            return false;
+        const FrameRecord& record = g_records[(latest - lag) % kFrameRecords];
+        if (record.index != latest - lag)
+            return false;
+        out = record;
+        return true;
+    }
+
+    std::uint64_t LatestFrameIndex() noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        return g_nextFrameIndex - 1;
+    }
+
+    void SetFrameLag(unsigned lag) noexcept { g_frameLag.store(lag, std::memory_order_relaxed); }
+    unsigned FrameLag() noexcept { return g_frameLag.load(std::memory_order_relaxed); }
+    void SetSubmitRenderedPose(bool enabled) noexcept { g_submitRenderedPose.store(enabled, std::memory_order_relaxed); }
+    bool SubmitRenderedPose() noexcept { return g_submitRenderedPose.load(std::memory_order_relaxed); }
+
     void InvalidateTracking() noexcept
     {
         std::scoped_lock lock(g_poseMutex);
         g_positions = {};
         g_orientation = {};
         g_hmdPosition = {};
+        g_viewsValid = false;
+        g_currentFrame = {};
         g_cameraDirections = {};
         g_aimOrientation = {};
     }

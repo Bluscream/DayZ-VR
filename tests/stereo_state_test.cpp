@@ -31,6 +31,44 @@ namespace
             "HMD recovery incorrectly revived the controller pose");
     }
 
+    void TestFrameRecords()
+    {
+        InvalidateTracking();
+        FrameRecord record{};
+        Expect(!PresentedRecord(0, record), "no record before the first game frame");
+        Expect(!CurrentFrame().valid, "no current frame before the first game frame");
+        UpdateHmdOrientation(0, 0.5f, 0, 0.5f);
+        UpdateHmdPosition(1, 2, 3);
+        ViewPose left{}; left.px = -0.03f; left.fovLeft = -0.8f;
+        ViewPose right{}; right.px = 0.03f; right.fovRight = 0.8f;
+        UpdateHmdViews(left, right);
+        const std::uint64_t first = BeginGameFrame(true);
+        const FrameRecord current = CurrentFrame();
+        Expect(current.valid && current.index == first && current.position.x == 1,
+            "current frame carries the frozen sample");
+        Expect(current.views[0].px == -0.03f && current.views[1].fovRight == 0.8f,
+            "current frame carries both view poses");
+        Expect(RenderedEye() == (first & 1u), "eye follows the frame index when alternating");
+        // A newer sample must not change the frozen frame.
+        UpdateHmdPosition(9, 9, 9);
+        Expect(CurrentFrame().position.x == 1, "frame sample is frozen until the next frame");
+        const std::uint64_t second = BeginGameFrame(true);
+        Expect(second == first + 1 && CurrentFrame().position.x == 9, "next frame takes the new sample");
+        Expect(RenderedEye() != (first & 1u), "eye alternates per frame");
+        Expect(PresentedRecord(0, record) && record.index == second, "lag 0 is the latest frame");
+        Expect(PresentedRecord(1, record) && record.index == first && record.position.x == 1,
+            "lag 1 is the previous frame with its own sample");
+        Expect(!PresentedRecord(5, record), "a lag beyond the filed frames is unknown");
+        Expect(LatestFrameIndex() == second, "latest index reported");
+        for (int i = 0; i < 40; ++i)
+            BeginGameFrame(false);
+        Expect(RenderedEye() == 0, "non-alternating frames stay on eye 0");
+        Expect(PresentedRecord(15, record) && record.index == LatestFrameIndex() - 15, "ring keeps 16 frames");
+        Expect(!PresentedRecord(16, record), "ring depth is 16");
+        InvalidateTracking();
+        Expect(!CurrentFrame().valid, "invalidation clears the current frame");
+    }
+
     void TestCoherentPosePublication()
     {
         InvalidateTracking();
@@ -86,6 +124,7 @@ int main()
     try
     {
         TestInvalidation();
+        TestFrameRecords();
         TestCoherentPosePublication();
     }
     catch (const std::exception& error)

@@ -22,6 +22,8 @@
 #include <openxr/openxr_platform.h>
 
 #include <array>
+
+#include "stereo_state.hpp"
 #include <memory>
 #include <mutex>
 #include <string>
@@ -253,6 +255,9 @@ private:
     XrTime lastTurnTime_{};
     float controllerDeadzone_{0.3f};
     std::array<bool, 4> movementKeys_{};
+    // View poses the current capture of each eye was rendered with (frame records).
+    struct CapturedView { dayz::stereo_state::FrameRecord record{}; bool valid{}; };
+    std::array<CapturedView, 2> capturedViews_{};
     // Last value written to each continuously sampled engine action (4 movement
     // directions, fire, raise), so the table is only touched on change and a
     // released action is cleared instead of being rewritten as 0 every frame.

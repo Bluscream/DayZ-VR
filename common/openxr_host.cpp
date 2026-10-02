@@ -1896,10 +1896,31 @@ void OpenXrHost::RenderFrame()
         const auto& orientation = views_[0].pose.orientation;
         dayz::stereo_state::UpdateHmdOrientation(orientation.x, orientation.y,
             orientation.z, orientation.w);
+        {
+            dayz::stereo_state::ViewPose recorded[2]{};
+            for (std::size_t eye = 0; eye < 2; ++eye)
+            {
+                const XrView& view = views_[eye];
+                recorded[eye] = {view.pose.orientation.x, view.pose.orientation.y,
+                    view.pose.orientation.z, view.pose.orientation.w,
+                    view.pose.position.x, view.pose.position.y, view.pose.position.z,
+                    view.fov.angleLeft, view.fov.angleRight, view.fov.angleUp, view.fov.angleDown};
+            }
+            dayz::stereo_state::UpdateHmdViews(recorded[0], recorded[1]);
+        }
         if (guiVisible && (!guiQuadWasVisible_ || !guiQuadAnchored_))
             AnchorGuiQuad(views_[0].pose);
         if (gameFrameSource_)
-            gameFrameSource_->PrepareFrame(dayz::stereo_state::RenderedEye());
+        {
+            // This runs inside DayZ's Present: the backbuffer holds the frame filed
+            // frame_lag game frames ago. Capture it under that frame's eye and keep the
+            // view poses it was rendered with for the layer below.
+            dayz::stereo_state::FrameRecord presented{};
+            const bool haveRecord = dayz::stereo_state::PresentedRecord(dayz::stereo_state::FrameLag(), presented);
+            const unsigned eye = haveRecord ? presented.eye : dayz::stereo_state::RenderedEye();
+            gameFrameSource_->PrepareFrame(eye);
+            capturedViews_[eye & 1u] = {presented, haveRecord && presented.valid};
+        }
         if (gameFrameSource_ && eyeDumpRequested_.exchange(false, std::memory_order_acq_rel))
         {
             std::wstring directory = ConfigurationPath();
@@ -1980,6 +2001,18 @@ void OpenXrHost::RenderFrame()
             auto& layerView = projectionViews[eye];
             layerView.pose = views_[eye].pose;
             layerView.fov = views_[eye].fov;
+            const CapturedView& captured = capturedViews_[eye];
+            if (dayz::stereo_state::SubmitRenderedPose() && captured.valid &&
+                gameFrameSource_ && gameFrameSource_->HasGameData())
+            {
+                // The compositor reprojects from the pose the image was rendered with
+                // to the display pose; submitting the newest pose instead would glue
+                // the (older) image to the head.
+                const dayz::stereo_state::ViewPose& view = captured.record.views[eye];
+                layerView.pose.orientation = {view.qx, view.qy, view.qz, view.qw};
+                layerView.pose.position = {view.px, view.py, view.pz};
+                layerView.fov = {view.fovLeft, view.fovRight, view.fovUp, view.fovDown};
+            }
             layerView.subImage.swapchain = swapchain.handle;
             layerView.subImage.imageRect.extent = {
                 static_cast<std::int32_t>(swapchain.width), static_cast<std::int32_t>(swapchain.height)};
