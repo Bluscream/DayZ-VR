@@ -178,6 +178,12 @@ namespace
 
     int RunCommand(void*, const char* name)
     {
+        if (name && _stricmp(name, "dump_eyes") == 0)
+        {
+            const bool written = OpenXrHost::Instance().DumpEyeCaptures();
+            logging::Info(written ? "Debug plugin dumped eye captures" : "Debug plugin eye dump failed");
+            return written ? 0 : -2;
+        }
         if (name && _stricmp(name, "recenter") == 0)
         {
             dayz::runtime_probe::RecenterHmd();

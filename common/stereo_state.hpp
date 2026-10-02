@@ -59,6 +59,16 @@ namespace dayz::stereo_state
     CameraDirections GetCameraDirections() noexcept;
     unsigned RenderedEye() noexcept;
     void AdvanceEye() noexcept;
+    void SetRenderedEye(unsigned eye) noexcept;
+    // Mid-frame eye capture used by stereo_mode=double: the host registers a
+    // callback that copies the current backbuffer into the given eye's capture.
+    using EyeCaptureCallback = void (*)(unsigned eye);
+    void SetEyeCaptureCallback(EyeCaptureCallback callback) noexcept;
+    bool CaptureEyeNow(unsigned eye) noexcept;
+    // Set by the double-render hook when both eyes were captured this frame, so
+    // the present-time capture is skipped; reading clears it.
+    void MarkBothEyesCaptured() noexcept;
+    bool ConsumeBothEyesCaptured() noexcept;
     void SetImageShift(float shift) noexcept;
     float ImageShift() noexcept;
     void SetPresentation(FitMode fitMode, float scaleX, float scaleY) noexcept;

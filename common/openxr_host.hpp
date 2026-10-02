@@ -24,6 +24,8 @@ class OpenXrHost
 {
 public:
     static OpenXrHost& Instance() noexcept;
+    // Debug: write the captured eye images as BMP beside DayZ_x64.exe.
+    bool DumpEyeCaptures() noexcept;
 
     bool InitializeWithDevice(ID3D11Device* device) noexcept;
     void AttachGameSwapChain(IDXGISwapChain* swapChain) noexcept;

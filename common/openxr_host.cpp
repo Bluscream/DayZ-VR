@@ -171,6 +171,16 @@ OpenXrHost& OpenXrHost::Instance() noexcept
     return host;
 }
 
+bool OpenXrHost::DumpEyeCaptures() noexcept
+{
+    if (!gameFrameSource_)
+        return false;
+    std::wstring directory = ConfigurationPath();
+    const auto separator = directory.find_last_of(L"\\/");
+    directory = separator == std::wstring::npos ? L"." : directory.substr(0, separator);
+    return gameFrameSource_->DumpCaptures(directory);
+}
+
 bool OpenXrHost::Check(XrResult result, const char* operation) const noexcept
 {
     if (XR_SUCCEEDED(result))
@@ -757,6 +767,10 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     if (gameSwapChain_)
         gameFrameSource_ = std::make_unique<DayZFrameSource>(gameSwapChain_.Get(), device_.Get(),
             context_.Get());
+    dayz::stereo_state::SetEyeCaptureCallback([](unsigned eye) {
+        if (OpenXrHost::Instance().gameFrameSource_)
+            OpenXrHost::Instance().gameFrameSource_->PrepareFrame(eye);
+    });
     initialized_ = true;
     logging::Info("OpenXR host initialized");
     return true;
@@ -1229,7 +1243,7 @@ void OpenXrHost::RenderFrame()
         if (guiVisible && (!guiQuadWasVisible_ || !guiQuadAnchored_))
             AnchorGuiQuad(views_[0].pose);
         SyncControllerInput(frameState.predictedDisplayTime, guiVisible);
-        if (gameFrameSource_)
+        if (gameFrameSource_ && !dayz::stereo_state::ConsumeBothEyesCaptured())
             gameFrameSource_->PrepareFrame(dayz::stereo_state::RenderedEye());
         static std::uint64_t logCounter{};
         static auto lastLog = std::chrono::steady_clock::now();
@@ -1523,6 +1537,7 @@ void OpenXrHost::Shutdown() noexcept
 {
     std::scoped_lock lock(mutex_);
     ReleaseControllerKeys();
+    dayz::stereo_state::SetEyeCaptureCallback(nullptr);
     gameFrameSource_.reset();
     debugFrameSource_.reset();
     gameSwapChain_.Reset();

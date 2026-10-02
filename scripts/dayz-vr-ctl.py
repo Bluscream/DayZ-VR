@@ -117,6 +117,7 @@ def main(argv: list[str]) -> int:
     setter.add_argument("name")
     setter.add_argument("value", type=float)
     commands.add_parser("recenter", help="recapture the HMD yaw and position centre")
+    commands.add_parser("dump-eyes", help="write dayz_openxr_eye0/1.bmp beside DayZ_x64.exe")
     commands.add_parser("ping")
     snapshot = commands.add_parser("snapshot", help="save the state to build/snapshots and compare with the previous one")
     snapshot.add_argument("label", nargs="?", default="snapshot")
@@ -165,6 +166,8 @@ def main(argv: list[str]) -> int:
             return 0 if reply.get("ok") else 1
         elif args.command == "recenter":
             print(json.dumps(client.request("recenter")))
+        elif args.command == "dump-eyes":
+            print(json.dumps(client.request("dump_eyes")))
         elif args.command == "ping":
             print(json.dumps(client.request("ping")))
         elif args.command == "snapshot":

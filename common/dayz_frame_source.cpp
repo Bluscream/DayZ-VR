@@ -6,7 +6,9 @@
 #include <d3dcompiler.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
+#include <vector>
 
 namespace
 {
@@ -271,4 +273,75 @@ void DayZFrameSource::RenderEye(const EyeRenderInfo& eye) noexcept
     Microsoft::WRL::ComPtr<ID3D11CommandList> commands;
     if (SUCCEEDED(deferredContext_->FinishCommandList(FALSE, &commands)))
         immediateContext_->ExecuteCommandList(commands.Get(), TRUE);
+}
+
+bool DayZFrameSource::DumpCaptures(const std::wstring& directory) noexcept
+{
+    if (!device_ || !immediateContext_ || !HasGameData())
+        return false;
+    bool any = false;
+    for (std::size_t eye = 0; eye < captureTextures_.size(); ++eye)
+    {
+        if (!ready_[eye] || !captureTextures_[eye])
+            continue;
+        D3D11_TEXTURE2D_DESC description{};
+        captureTextures_[eye]->GetDesc(&description);
+        description.Usage = D3D11_USAGE_STAGING;
+        description.BindFlags = 0;
+        description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        description.MiscFlags = 0;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> staging;
+        if (FAILED(device_->CreateTexture2D(&description, nullptr, &staging)))
+            continue;
+        immediateContext_->CopyResource(staging.Get(), captureTextures_[eye].Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(immediateContext_->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            continue;
+        // 24-bit BMP, bottom-up rows; the capture is BGRA or RGBA 8-bit.
+        const bool rgba = description.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            description.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            description.Format == DXGI_FORMAT_R8G8B8A8_TYPELESS;
+        const std::uint32_t width = description.Width;
+        const std::uint32_t height = description.Height;
+        const std::uint32_t rowBytes = (width * 3 + 3) & ~3u;
+        std::vector<std::uint8_t> pixels(static_cast<std::size_t>(rowBytes) * height);
+        for (std::uint32_t y = 0; y < height; ++y)
+        {
+            const auto* source = static_cast<const std::uint8_t*>(mapped.pData) +
+                static_cast<std::size_t>(mapped.RowPitch) * y;
+            std::uint8_t* target = pixels.data() + static_cast<std::size_t>(rowBytes) * (height - 1 - y);
+            for (std::uint32_t x = 0; x < width; ++x)
+            {
+                const std::uint8_t* p = source + x * 4;
+                target[x * 3 + 0] = rgba ? p[2] : p[0];
+                target[x * 3 + 1] = p[1];
+                target[x * 3 + 2] = rgba ? p[0] : p[2];
+            }
+        }
+        immediateContext_->Unmap(staging.Get(), 0);
+        const std::wstring path = directory + L"\\dayz_openxr_eye" + std::to_wstring(eye) + L".bmp";
+        FILE* file{};
+        if (_wfopen_s(&file, path.c_str(), L"wb") != 0 || !file)
+            continue;
+        const std::uint32_t dataSize = static_cast<std::uint32_t>(pixels.size());
+        const std::uint32_t fileSize = 54 + dataSize;
+        const std::uint8_t header[54] = {
+            'B', 'M',
+            static_cast<std::uint8_t>(fileSize), static_cast<std::uint8_t>(fileSize >> 8),
+            static_cast<std::uint8_t>(fileSize >> 16), static_cast<std::uint8_t>(fileSize >> 24),
+            0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0,
+            static_cast<std::uint8_t>(width), static_cast<std::uint8_t>(width >> 8),
+            static_cast<std::uint8_t>(width >> 16), static_cast<std::uint8_t>(width >> 24),
+            static_cast<std::uint8_t>(height), static_cast<std::uint8_t>(height >> 8),
+            static_cast<std::uint8_t>(height >> 16), static_cast<std::uint8_t>(height >> 24),
+            1, 0, 24, 0, 0, 0, 0, 0,
+            static_cast<std::uint8_t>(dataSize), static_cast<std::uint8_t>(dataSize >> 8),
+            static_cast<std::uint8_t>(dataSize >> 16), static_cast<std::uint8_t>(dataSize >> 24),
+            0x13, 0x0B, 0, 0, 0x13, 0x0B, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        fwrite(header, 1, sizeof(header), file);
+        fwrite(pixels.data(), 1, pixels.size(), file);
+        fclose(file);
+        any = true;
+    }
+    return any;
 }

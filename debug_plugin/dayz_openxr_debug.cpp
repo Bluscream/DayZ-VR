@@ -57,6 +57,9 @@ namespace
         case CommandKind::Recenter:
             return FormatResult(g_host.run_command(g_host.context, "recenter"),
                 "unknown command", "command failed");
+        case CommandKind::DumpEyes:
+            return FormatResult(g_host.run_command(g_host.context, "dump_eyes"),
+                "unknown command", "command failed");
         case CommandKind::Ping:
             return "{\"ok\":true,\"pong\":true}";
         case CommandKind::Invalid:

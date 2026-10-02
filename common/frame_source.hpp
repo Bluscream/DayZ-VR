@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include <d3d11.h>
 #include <openxr/openxr.h>
 
@@ -23,4 +25,5 @@ public:
     virtual void PrepareFrame(std::uint32_t sourceEye = 0) noexcept { (void)sourceEye; }
     virtual bool HasGameData() const noexcept = 0;
     virtual void RenderEye(const EyeRenderInfo& eye) noexcept = 0;
+    virtual bool DumpCaptures(const std::wstring&) noexcept { return false; }
 };

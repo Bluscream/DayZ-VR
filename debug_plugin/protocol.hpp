@@ -5,6 +5,7 @@
 //   tunables            -> JSON object {"name": value, ...}
 //   set <name> <value>  -> {"ok":true} or {"ok":false,"error":"..."}
 //   recenter            -> {"ok":true}
+//   dump_eyes           -> {"ok":true}  (writes dayz_openxr_eye0/1.bmp beside the exe)
 //   ping                -> {"ok":true,"pong":true}
 // Every reply is exactly one line.
 #pragma once
@@ -18,7 +19,7 @@
 
 namespace dayz::debug_protocol
 {
-    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, Ping };
+    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, DumpEyes, Ping };
 
     struct Command
     {
@@ -50,6 +51,8 @@ namespace dayz::debug_protocol
             command.kind = CommandKind::Tunables;
         else if (verb == "recenter")
             command.kind = CommandKind::Recenter;
+        else if (verb == "dump_eyes")
+            command.kind = CommandKind::DumpEyes;
         else if (verb == "ping")
             command.kind = CommandKind::Ping;
         else if (verb == "set" && firstSpace != std::string_view::npos)

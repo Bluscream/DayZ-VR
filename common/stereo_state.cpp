@@ -217,4 +217,39 @@ namespace dayz::stereo_state
         result.w = g_aimW.load(std::memory_order_relaxed);
         return result;
     }
+
+    namespace
+    {
+        std::atomic<EyeCaptureCallback> g_eyeCapture{nullptr};
+        std::atomic<bool> g_bothEyesCaptured{false};
+    }
+
+    void SetRenderedEye(unsigned eye) noexcept
+    {
+        g_eye.store(eye & 1u, std::memory_order_relaxed);
+    }
+
+    void SetEyeCaptureCallback(EyeCaptureCallback callback) noexcept
+    {
+        g_eyeCapture.store(callback, std::memory_order_release);
+    }
+
+    bool CaptureEyeNow(unsigned eye) noexcept
+    {
+        const EyeCaptureCallback callback = g_eyeCapture.load(std::memory_order_acquire);
+        if (!callback)
+            return false;
+        callback(eye & 1u);
+        return true;
+    }
+
+    void MarkBothEyesCaptured() noexcept
+    {
+        g_bothEyesCaptured.store(true, std::memory_order_relaxed);
+    }
+
+    bool ConsumeBothEyesCaptured() noexcept
+    {
+        return g_bothEyesCaptured.exchange(false, std::memory_order_relaxed);
+    }
 }

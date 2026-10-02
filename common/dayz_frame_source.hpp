@@ -15,6 +15,8 @@ public:
     void PrepareFrame(std::uint32_t sourceEye = 0) noexcept override;
     bool HasGameData() const noexcept override { return ready_[0] || ready_[1]; }
     void RenderEye(const EyeRenderInfo& eye) noexcept override;
+    // Writes the captured eye textures as <directory>\\dayz_openxr_eye<N>.bmp (debug).
+    bool DumpCaptures(const std::wstring& directory) noexcept override;
 
 private:
     struct FrameConstants

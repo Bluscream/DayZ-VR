@@ -28,6 +28,9 @@ namespace dayz::builds
         std::uintptr_t drawIndexedReturnRva{0x002600DD};
         std::uintptr_t drawReturnRva{0x002601C2};
         std::uintptr_t drawSecondReturnRva{0x0026038E};
+        // Per-frame world render (prepare mode 1 + execute/finalize + post passes).
+        // 0 disables [stereo] stereo_mode=double for the build.
+        std::uintptr_t worldRenderRva{};
     };
 
     constexpr std::array kBuildProfiles{
@@ -36,7 +39,7 @@ namespace dayz::builds
             0x0044F5A0, 0x004507A0, 0x004508B0, 0x00952000, 0x008A2280,
             0x00350B60, 0x0426F5CC, 0x042626D0, 0x005C4CA9, 0x0022EF70,
             0x00FED8F8, 0x01007E00, 0x01007CE0, 0x004B6BE0, 0x004B7AD0,
-            0x0025F4DD, 0x0025F5C2, 0x0025F78E},
+            0x0025F4DD, 0x0025F5C2, 0x0025F78E, 0x008E7650},
         BuildProfile{"DayZ_x64", 0x6A47B9AAu, 0x04407000u, 0x004501A0, 0x004513A0,
             0x004514B0, 0x00952B30, 0x008A2DB0, 0x00351760, 0x0427063C,
             0x04263740, 0x005C5899, 0x0022FB70, 0x00FEE968, 0x01008E70,

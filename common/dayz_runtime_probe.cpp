@@ -50,6 +50,7 @@ namespace
     std::uintptr_t kCameraManagerRva{};
     std::uintptr_t kGetActiveCameraStateRva{};
     std::uintptr_t kCameraFovUpdateRva{};
+    std::uintptr_t kWorldRenderRva{};
     constexpr std::ptrdiff_t kContextCamera = 0x118;
     constexpr std::ptrdiff_t kPreparedContextCamera = 0xA34;
     constexpr std::ptrdiff_t kContextDescriptor = 0xA10;
@@ -62,6 +63,10 @@ namespace
     using PrepareViewFn = void(__fastcall*)(OpaqueEngine*, OpaqueContext*, std::uint8_t,
         OpaqueCamera*);
     using ExecuteViewFn = void*(__fastcall*)(OpaqueEngine*, OpaqueContext*, std::uint8_t);
+    // Per-frame world render: engine, frame, and a two-slot descriptor whose first
+    // slot the function consumes (sets to 0) after rendering.
+    using WorldRenderFn = void(__fastcall*)(OpaqueEngine*, void*, std::uintptr_t*);
+    WorldRenderFn g_worldRender{};
     using FinalizeViewFn = std::uintptr_t(__fastcall*)(OpaqueEngine*, OpaqueContext*,
         std::uint8_t);
     using ProjectionDispatchFn = std::uintptr_t(__fastcall*)(OpaqueContext*, std::uint8_t);
@@ -182,6 +187,9 @@ namespace
     std::atomic_uint32_t g_drawStateEventCount{};
     std::atomic_bool g_captureApi{};
     bool g_alternateEyeEnabled{};
+    // [stereo] stereo_mode=double: render the world twice per frame, once per eye.
+    bool g_stereoDouble{};
+    std::atomic<std::uint64_t> g_doubleRenderFrames{0};
     bool g_hmdRotationEnabled{};
     bool g_hmdNativeAimEnabled{true};
     float g_hmdMouseYawScale{-600.0f};
@@ -714,6 +722,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         kCameraManagerRva = g_buildProfile->cameraManagerRva;
         kGetActiveCameraStateRva = g_buildProfile->getActiveCameraStateRva;
         kCameraFovUpdateRva = g_buildProfile->cameraFovUpdateRva;
+        kWorldRenderRva = g_buildProfile->worldRenderRva;
 
         static constexpr std::uint8_t prepare[] = {
             0x48,0x85,0xD2,0x0F,0,0,0,0,0,0x48,0x8B,0xC4,0x55,0x56,0x57,0x41,
@@ -785,7 +794,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     {
         const dayz::stereo_state::EyePositions eyePositions =
             dayz::stereo_state::GetEyePositions();
-        if (!g_alternateEyeEnabled || !eyePositions.valid)
+        if ((!g_alternateEyeEnabled && !g_stereoDouble) || !eyePositions.valid)
             return;
         if (!camera)
             return;
@@ -1415,6 +1424,49 @@ float4 PSMain(VertexOutput input) : SV_Target
                 caller >= g_moduleBase && caller < g_moduleBase + kImageSize ? caller - g_moduleBase : 0))
             return nullptr;
         return g_executeView(engine, context, mode);
+    }
+
+    bool WorldRenderSignatureMatches() noexcept
+    {
+        static constexpr std::uint8_t worldRender[] = {
+            0x48,0x89,0x6C,0x24,0x18,0x57,0x41,0x56,0x41,0x57,0x48,0x83,0xEC,0x20,0x49,0x8B,
+            0x38,0x4D,0x8B,0xF0,0x4C,0x8B,0xFA,0x48,0x8B,0xE9,0x48,0x85,0xFF};
+        return kWorldRenderRva && Match(kWorldRenderRva, worldRender,
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx", sizeof(worldRender));
+    }
+
+    // stereo_mode=double: run DayZ's world render once per eye. The descriptor's
+    // first slot is consumed by the call, so it is restored for the second pass;
+    // the backbuffer is captured after each pass into that eye's texture.
+    void __fastcall HookedWorldRender(OpaqueEngine* engine, void* frame, std::uintptr_t* slots)
+    {
+        const dayz::stereo_state::EyePositions eyes = dayz::stereo_state::GetEyePositions();
+        if (!g_stereoDouble || !slots || !slots[0] || !eyes.valid || !g_active.load(std::memory_order_relaxed))
+        {
+            g_worldRender(engine, frame, slots);
+            return;
+        }
+        const std::uintptr_t saved0 = slots[0];
+        const std::uintptr_t saved1 = slots[1];
+        dayz::stereo_state::SetRenderedEye(0);
+        g_worldRender(engine, frame, slots);
+        const bool capturedLeft = dayz::stereo_state::CaptureEyeNow(0);
+        slots[0] = saved0;
+        slots[1] = saved1;
+        dayz::stereo_state::SetRenderedEye(1);
+        g_worldRender(engine, frame, slots);
+        const bool capturedRight = dayz::stereo_state::CaptureEyeNow(1);
+        if (capturedLeft && capturedRight)
+            dayz::stereo_state::MarkBothEyesCaptured();
+        const std::uint64_t frames = g_doubleRenderFrames.fetch_add(1) + 1;
+        if (frames == 1 || frames % 600 == 0)
+        {
+            std::ostringstream message;
+            message << "Double world render frame " << frames << " slot0=" << std::hex << saved0
+                    << " slot1=" << saved1 << std::dec << " captured=" << capturedLeft << ','
+                    << capturedRight << " tid=" << GetCurrentThreadId();
+            logging::Info(message.str());
+        }
     }
 
     std::uintptr_t __fastcall HookedFinalizeView(OpaqueEngine* engine, OpaqueContext* context,
@@ -2898,6 +2950,7 @@ namespace dayz::runtime_probe
         dayz::patches::Initialize(ConfigurationFile().c_str());
         dayz::hotkeys::Initialize(ConfigurationFile().c_str());
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
+        g_stereoDouble = _wcsicmp(ReadString(L"stereo", L"stereo_mode", L"alternate").c_str(), L"double") == 0;
         g_hmdRotationEnabled = ReadBoolean(L"stereo", L"hmd_rotation", true);
         g_hmdNativeAimEnabled = ReadBoolean(L"stereo", L"hmd_native_aim", true);
         g_hmdMouseYawScale = ReadFloat(L"stereo", L"hmd_mouse_yaw_scale", -600.0f);
@@ -2980,6 +3033,21 @@ namespace dayz::runtime_probe
             if (!dynamicBlurHookCreated)
                 logging::Error("Inventory blur hook creation failed; blur remains enabled");
         }
+        bool worldRenderHookCreated{};
+        if (g_stereoDouble)
+        {
+            if (!WorldRenderSignatureMatches())
+                logging::Error("stereo_mode=double: world render signature not verified for this build; staying alternate-eye");
+            else
+            {
+                worldRenderHookCreated = AddHook(kWorldRenderRva, reinterpret_cast<void*>(HookedWorldRender),
+                    g_worldRender);
+                if (!worldRenderHookCreated)
+                    logging::Error("stereo_mode=double: world render hook creation failed; staying alternate-eye");
+            }
+            if (!worldRenderHookCreated)
+                g_stereoDouble = false;
+        }
         bool cameraFovHookCreated{};
         if (g_gameFov > 0.0f && kCameraFovUpdateRva)
         {
@@ -3020,6 +3088,18 @@ namespace dayz::runtime_probe
                 logging::Info("Gameplay camera FOV override hook active");
             else
                 logging::Error("Gameplay camera FOV override hook could not be enabled");
+        }
+        if (worldRenderHookCreated)
+        {
+            const MH_STATUS enabled = MH_EnableHook(
+                reinterpret_cast<void*>(g_moduleBase + kWorldRenderRva));
+            if (enabled == MH_OK || enabled == MH_ERROR_ENABLED)
+                logging::Info("stereo_mode=double: world render hook active (experimental)");
+            else
+            {
+                logging::Error("stereo_mode=double: world render hook could not be enabled; staying alternate-eye");
+                g_stereoDouble = false;
+            }
         }
         if (frameRefreshHookCreated)
         {
@@ -3133,7 +3213,7 @@ namespace dayz::runtime_probe
         const std::uint32_t drawStateCount = g_drawStateEventCount.exchange(0,
             std::memory_order_acq_rel);
         g_captureApi.store(frame < 12 || frame % 120 == 119, std::memory_order_relaxed);
-        if (g_alternateEyeEnabled)
+        if (g_alternateEyeEnabled && !g_stereoDouble)
             dayz::stereo_state::AdvanceEye();
         if (frame > 12 && frame % 120 != 0)
             return;
