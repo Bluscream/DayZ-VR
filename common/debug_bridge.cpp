@@ -2,6 +2,7 @@
 
 #include "dayz_runtime_probe.hpp"
 #include "dayz_vr_debug_api.h"
+#include "dayz_input_hooks.hpp"
 #include "logging.hpp"
 #include "openxr_host.hpp"
 #include "stereo_state.hpp"
@@ -13,6 +14,7 @@
 #include <cstring>
 #include <iterator>
 #include <mutex>
+#include <cstdlib>
 #include <string>
 
 namespace
@@ -190,6 +192,28 @@ namespace
         {
             dayz::runtime_probe::RecenterHmd();
             logging::Info("Debug plugin requested HMD recenter");
+            return 0;
+        }
+        // "action <UAName> <value>": force an engine input action (test aid for the
+        // direct input hooks; value > 0.5 also holds the digital state, 0 releases).
+        if (name && _strnicmp(name, "action ", 7) == 0)
+        {
+            if (!dayz::input_hooks::Active())
+                return -2;
+            const std::string rest(name + 7);
+            const auto space = rest.find(' ');
+            if (space == std::string::npos || space == 0)
+                return -1;
+            const std::string action = rest.substr(0, space);
+            char* end{};
+            const double value = std::strtod(rest.c_str() + space + 1, &end);
+            if (!end || *end != '\0')
+                return -1;
+            if (value == 0.0)
+                dayz::input_hooks::ClearAction(action);
+            else
+                dayz::input_hooks::SetAction(action, static_cast<float>(value), value > 0.5);
+            logging::Info("Debug plugin forced action " + action + " = " + rest.substr(space + 1));
             return 0;
         }
         return -1;

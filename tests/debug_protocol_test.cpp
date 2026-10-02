@@ -38,6 +38,12 @@ namespace
         for (const auto* invalid : {"set x nan", "set x inf", "set x 1e999", "get extra", "ping extra"})
             Expect(ParseCommand(invalid).kind == CommandKind::Invalid, "reject invalid command");
         Expect(ParseCommand("set\tx\t1").kind == CommandKind::Set, "tab-separated command");
+        const Command action = ParseCommand("action UAMoveForward 0.75");
+        Expect(action.kind == CommandKind::Action && action.name == "UAMoveForward" && action.value == 0.75,
+            "action with name and value");
+        Expect(ParseCommand("action UAFire").kind == CommandKind::Invalid, "action without value");
+        Expect(ParseCommand("action").kind == CommandKind::Invalid, "action without args");
+        Expect(ParseCommand("action UAFire x").kind == CommandKind::Invalid, "action non-numeric");
         Expect(ParseCommand(std::string("set x 1\0junk", 12)).kind == CommandKind::Invalid, "embedded nul");
         Expect(ParseCommand("").kind == CommandKind::Invalid, "empty");
         Expect(ParseCommand("GET").kind == CommandKind::Invalid, "verbs are case-sensitive");

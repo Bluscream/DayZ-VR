@@ -4,6 +4,8 @@
 //   get                 -> one JSON object with the full DayzVrDebugState
 //   tunables            -> JSON object {"name": value, ...}
 //   set <name> <value>  -> {"ok":true} or {"ok":false,"error":"..."}
+//   action <UAName> <value> -> forces a DayZ input action through the engine hooks
+//                          (value > 0.5 = held; 0 releases); same reply shape as set
 //   recenter            -> {"ok":true}
 //   haptic              -> {"ok":true}  (test vibration on the right controller)
 //   dump_eyes           -> {"ok":true}  (writes dayz_openxr_eye0/1.bmp beside the exe)
@@ -23,7 +25,7 @@
 
 namespace dayz::debug_protocol
 {
-    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, Haptic, DumpEyes, Ping };
+    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, Haptic, DumpEyes, Ping, Action };
 
     struct Command
     {
@@ -49,7 +51,8 @@ namespace dayz::debug_protocol
         line = Trim(line);
         const auto firstSpace = line.find_first_of(" \t");
         const std::string_view verb = line.substr(0, firstSpace);
-        if (verb != "set" && firstSpace != std::string_view::npos)
+        const bool takesArguments = verb == "set" || verb == "action";
+        if (!takesArguments && firstSpace != std::string_view::npos)
             return command;
         if (verb == "get")
             command.kind = CommandKind::Get;
@@ -63,7 +66,7 @@ namespace dayz::debug_protocol
             command.kind = CommandKind::DumpEyes;
         else if (verb == "ping")
             command.kind = CommandKind::Ping;
-        else if (verb == "set" && firstSpace != std::string_view::npos)
+        else if (takesArguments && firstSpace != std::string_view::npos)
         {
             const std::string_view rest = Trim(line.substr(firstSpace + 1));
             const auto secondSpace = rest.find_first_of(" \t");
@@ -76,7 +79,7 @@ namespace dayz::debug_protocol
             if (valueText.empty() || parsed.ec != std::errc{} ||
                 parsed.ptr != valueText.data() + valueText.size() || !std::isfinite(value))
                 return command;
-            command.kind = CommandKind::Set;
+            command.kind = verb == "set" ? CommandKind::Set : CommandKind::Action;
             command.name.assign(name.data(), name.size());
             command.value = value;
         }

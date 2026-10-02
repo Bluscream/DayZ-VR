@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdio>
 #include <mutex>
+#include <charconv>
 #include <string>
 #include <thread>
 #include <vector>
@@ -71,6 +72,16 @@ namespace
         case CommandKind::DumpEyes:
             return FormatResult(g_host.run_command(g_host.context, "dump_eyes"),
                 "unknown command", "command failed");
+        case CommandKind::Action:
+        {
+            // The host parses "action <name> <value>" itself (run_command takes one string).
+            std::string request = "action " + command.name + ' ';
+            char number[32]{};
+            const auto written = std::to_chars(number, number + sizeof(number), command.value);
+            request.append(number, written.ptr);
+            return FormatResult(g_host.run_command(g_host.context, request.c_str()),
+                "unknown command or action", "direct input inactive");
+        }
         case CommandKind::Ping:
             return "{\"ok\":true,\"pong\":true}";
         case CommandKind::Invalid:

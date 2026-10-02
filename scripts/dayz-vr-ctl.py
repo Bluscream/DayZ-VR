@@ -12,6 +12,7 @@ host, so this script needs no Wine. Examples:
     dayz-vr-ctl.py set stereo.hmd_mouse_yaw_scale -300
     dayz-vr-ctl.py recenter
     dayz-vr-ctl.py haptic
+    dayz-vr-ctl.py action UAMoveForward 1
     dayz-vr-ctl.py snapshot turned-left     # save state to build/snapshots/<time>-turned-left.json
     dayz-vr-ctl.py compare                  # yaw/pitch deltas between the last two snapshots
     dayz-vr-ctl.py calibrate --min-degrees 20   # turn your head: camera/HMD yaw ratio + aim error
@@ -172,6 +173,9 @@ def main(argv: list[str]) -> int:
     setter.add_argument("value", type=float)
     commands.add_parser("recenter", help="recapture the HMD yaw and position centre")
     commands.add_parser("haptic", help="send a test vibration to the right controller")
+    action = commands.add_parser("action", help="force a DayZ input action through the engine hooks (test aid)")
+    action.add_argument("name", help="action name, e.g. UAMoveForward, UAFire, UAGetOver")
+    action.add_argument("value", type=float, help="0 releases; > 0.5 also holds the digital state")
     commands.add_parser("dump-eyes", help="write dayz_openxr_eye0/1.bmp beside DayZ_x64.exe")
     commands.add_parser("ping")
     snapshot = commands.add_parser("snapshot", help="save the state to build/snapshots and compare with the previous one")
@@ -227,6 +231,10 @@ def main(argv: list[str]) -> int:
             print(json.dumps(client.request("recenter")))
         elif args.command == "haptic":
             reply = client.request("haptic")
+            print(json.dumps(reply))
+            return 0 if reply.get("ok") else 1
+        elif args.command == "action":
+            reply = client.request(f"action {args.name} {args.value!r}")
             print(json.dumps(reply))
             return 0 if reply.get("ok") else 1
         elif args.command == "calibrate":
