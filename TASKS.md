@@ -309,6 +309,8 @@ detour. Update the entry when you touch the track; keep history in git, not here
   `Skipped executeView` or a `Fatal exception` block and fix the root cause.
 
 ## V1. Headset verification backlog
+- Aim-loop warm-up: on the sim the first in-world minute (25-33 fps) has the yaw gain
+  estimate swinging before it settles (see T1); confirm or rule out at headset frame rates.
 - Closed-loop aim at 67 fps (gain learning engages above 3 counts/frame), lock_yaw/pitch
   feel, vignette look, controller_aim with real tracking, hotkeys F9-F12, stick-click
   recenter, GE-Proton11-7.
@@ -334,8 +336,19 @@ detour. Update the entry when you touch the track; keep history in git, not here
   then follows the right controller and the head ratio is meaningless (sim run: head
   +8.4 deg, camera -10 deg chasing the static sim controller, error 10.8 deg at 45
   fps; the loop converged to 0.0 deg once the head stopped).
-- Next: automated regression run (launch, join, measure, stop) built from
-  `run-dayz-direct.sh`, `dayz-status.sh --wait`, `calibrate` and `build.sh --stop`.
+- State (09:38): `scripts/regression-run.sh [--skip-build] [--keep]`: gate+deploy (or
+  stop only), server restart, blocking wait for the server mod's start-up line in the
+  container log (`podman logs -f | grep -m1`, SIGPIPE-tolerant), sim launch,
+  `dayz-status.sh --wait 300`, server `info`, client `print`, haptic pulse, 40 s of
+  `watch` samples, `calibrate`, stop. Per-step PASS/FAIL, full logs under
+  `build/logs/regression-<stamp>/`. First green run 09:33 (11/11).
+- Finding (sim, 45 fps): the aim loop needs ~60-90 s after the spawn to converge; the
+  first in-world minute runs at 25-33 fps while the world streams in and the learned
+  yaw gain swings between -200 and -770 counts/rad before settling near -165 (pitch
+  -161). After that both aim modes hold the error at 0.1 deg. The headset session
+  should check whether the same warm-up shows at 67+ fps.
+- Next: nightly-style run from a timer once the headset path exists; a `--no-sim`
+  mode for the real headset that skips the Monado launch.
 
 
 ## Q1. Native VR quality target and interaction roadmap
