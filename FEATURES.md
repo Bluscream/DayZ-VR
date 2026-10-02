@@ -21,7 +21,7 @@ or a hotkey toggle.
 | Feature | Details | Config | Origin | Verified |
 | --- | --- | --- | --- | --- |
 | Local DXGI proxy | `dxgi.dll` beside `DayZ_x64.exe` forwards the factory exports to the system library and hooks swap-chain creation, `Present`, `Present1` and `ResizeBuffers`. | `[hooks]` | inherited | headset, sim |
-| OpenXR session via D3D11 | Rendered frames are submitted to the active OpenXR runtime (SteamVR, WiVRn, Monado) as a two-view projection layer with the headset's native FOV. | `[openxr] enabled`, `reference_space`, `debug_layer` | inherited | headset, sim |
+| OpenXR session via D3D11 | Rendered frames are submitted to the active OpenXR runtime (SteamVR, WiVRn, Monado) as a two-view projection layer with the headset's native FOV. | `[openxr] enabled` (LOCAL reference space, no validation layer; the former `reference_space`/`debug_layer` keys were never read and are gone) | inherited | headset, sim |
 | Build-identity check | Hooks install only when the executable's PE timestamp and `SizeOfImage` match a known profile; a mismatched DayZ build leaves rendering untouched. Profiles: `DayZ_x64.exe` 1.29.163709 and `DayZDiag_x64.exe` (signature-relocated, experimental). | `[stereo] runtime_probe` | inherited (profile `new`) | sim, tests |
 | Forwarding-only mode | `[openxr] enabled=false` loads the proxy without changing rendering, for a safe first test. | `[openxr] enabled` | inherited | headset |
 | Keep full frame rate when unfocused | DayZ throttles to ~20 fps when its window is in the background; `keep_focus` makes the engine see its window as always active. | `[hooks] keep_focus` | new | sim |
@@ -30,7 +30,7 @@ or a hotkey toggle.
 | Tracking-loss handling | Pose validity bits are honoured, poses are published coherently, held controller input is released at focus/session loss. Controller *tracking* continues while the desktop window is unfocused; only key/mouse injection stops. | – | new (audit X01/X02) | sim, tests |
 | Engine crash guard | Skips a single `executeView` call whose prepared-view pointer DayZ already cleared (crash at DayZ+0x1DDE4B after dragging the window) and logs it. | `[patches] guard_execute_without_prepared_view` | new | untested (crash not reproduced headless) |
 | Crash reporter | Vectored exception handler writes the fault, a DayZ+RVA backtrace and the recent `ResizeBuffers` calls to `dayz_openxr.log`. Best-effort diagnostics. | – | new | sim (no crash yet) |
-| Logging | Levelled log file with a fresh file per launch (previous kept as `.1`). | `[logging] level`, `file` | inherited | headset, sim |
+| Logging | Log file `dayz_openxr.log` beside the DLL, fresh per launch (previous kept as `.1`); the level is fixed at the build's verbosity, the former `[logging]` ini section was never read. | – | inherited | headset, sim |
 | Standalone OpenXR probe | `xr_probe.exe` verifies runtime and headset with a diagnostic grid before touching the game. | – | inherited | headset |
 
 ## 2. Stereo and camera

@@ -11,47 +11,6 @@
           "type": "bool",
           "default": "true",
           "restart": true
-        },
-        "debug_layer": {
-          "title": "OpenXR debug layer",
-          "description": "Not read by the current build; the OpenXR validation layer is never requested.",
-          "type": "bool",
-          "default": "false",
-          "unused": true
-        },
-        "reference_space": {
-          "title": "Reference space",
-          "description": "Not read by the current build; the host always creates a LOCAL space (seated/standing from the runtime origin).",
-          "type": "enum",
-          "default": "local",
-          "values": [
-            "local",
-            "stage"
-          ],
-          "unused": true
-        }
-      }
-    },
-    "render": {
-      "title": "Render path",
-      "description": "Which frames reach the headset.",
-      "keys": {
-        "mode": {
-          "title": "Render mode",
-          "description": "Not read by the current build: the host shows its diagnostic grid until DayZ delivers frames and the game image from then on, with no setting involved. Kept for file compatibility.",
-          "type": "enum",
-          "default": "game",
-          "values": [
-            "game"
-          ],
-          "unused": true
-        },
-        "submit_when_unfocused": {
-          "title": "Submit while unfocused",
-          "description": "Not read by the current build. Frames are submitted whenever the session is focused; see [hooks] keep_focus for the frame-rate behaviour.",
-          "type": "bool",
-          "default": "false",
-          "unused": true
         }
       }
     },
@@ -282,32 +241,6 @@
         }
       }
     },
-    "logging": {
-      "title": "Logging",
-      "description": "The proxy's own log file beside DayZ_x64.exe.",
-      "keys": {
-        "level": {
-          "title": "Log level",
-          "description": "Not read by the current build; every info and error line is written regardless.",
-          "type": "enum",
-          "default": "debug",
-          "values": [
-            "debug",
-            "info",
-            "warning",
-            "error"
-          ],
-          "unused": true
-        },
-        "file": {
-          "title": "Log file",
-          "description": "File name of the log, relative to the DayZ directory. A fresh file is started on every launch, the previous one kept as .1.",
-          "type": "text",
-          "default": "dayz_openxr.log",
-          "restart": true
-        }
-      }
-    },
     "debug": {
       "title": "Debug plugin",
       "description": "Optional runtime control plugin used by dayz-vr-ctl.py and this editor's live apply.",
@@ -345,27 +278,6 @@
         "enabled": {
           "title": "Install hooks",
           "description": "Master switch for the DXGI swap-chain hooks. Off, nothing is intercepted and VR cannot work.",
-          "type": "bool",
-          "default": "true",
-          "restart": true
-        },
-        "present": {
-          "title": "Hook Present",
-          "description": "Intercept IDXGISwapChain::Present to capture and submit frames.",
-          "type": "bool",
-          "default": "true",
-          "restart": true
-        },
-        "present1": {
-          "title": "Hook Present1",
-          "description": "Intercept IDXGISwapChain1::Present1 as well (used by DayZ on newer swap-chain paths).",
-          "type": "bool",
-          "default": "true",
-          "restart": true
-        },
-        "resize_buffers": {
-          "title": "Hook ResizeBuffers",
-          "description": "Intercept ResizeBuffers so capture resources follow window and resolution changes.",
           "type": "bool",
           "default": "true",
           "restart": true
