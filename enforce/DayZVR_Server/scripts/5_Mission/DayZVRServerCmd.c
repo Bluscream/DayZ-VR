@@ -12,6 +12,9 @@
 //                              battery, spark plug, radiator, fuel, water, oil)
 //   tp <x> <z> | tp <x> <y> <z> | tp <preset>   teleport (presets: nwaf, cherno,
 //                              elektro, berezino, svetlo, tisy, zeleno)
+//   tpto [dx dy dz]            stand beside the nearest vehicle (model-space offset,
+//                              default -1.6 0 0.3 = driver's door)
+//   enter                      seat the player as driver of the nearest vehicle (<= 15 m)
 //   heal                       full health/blood/energy/water, no bleeding
 //   time <hour> [minute]       set the server clock
 //   weather clear|rain|fog     set weather instantly
@@ -95,6 +98,10 @@ class DayZVRServerCmd
 			return Spawn(player, words);
 		if (verb == "tp")
 			return Teleport(player, words);
+		if (verb == "tpto")
+			return TeleportToVehicle(player, words);
+		if (verb == "enter")
+			return EnterVehicle(player);
 		if (verb == "heal")
 			return Heal(player);
 		if (verb == "time")
@@ -150,19 +157,21 @@ class DayZVRServerCmd
 		Weapon_Base weapon = Weapon_Base.Cast(item);
 		if (!weapon)
 			return "in hands: " + words[1];
+		int muzzle = weapon.GetCurrentMuzzle();
+		if (weapon.HasInternalMagazine(muzzle))
+		{
+			// Bolt-actions, shotguns: SpawnAttachedMagazine throws for these (no
+			// "magazines" config entry), so fill the internal magazine instead; "rounds"
+			// cannot be set for it.
+			weapon.FillInnerMagazine("", WeaponWithAmmoFlags.CHAMBER);
+			return "in hands: " + words[1] + " with internal magazine (" + weapon.GetInternalMagazineCartridgeCount(muzzle).ToString() + " rounds)";
+		}
 		string magazine = "";
 		if (words.Count() > 2 && words[2] != "-")
 			magazine = words[2];
 		Magazine mag = weapon.SpawnAttachedMagazine(magazine);
 		if (!mag)
-		{
-			int muzzle = weapon.GetCurrentMuzzle();
-			if (!weapon.HasInternalMagazine(muzzle))
-				return "in hands: " + words[1] + " (no magazine spawned)";
-			// Internal magazine (bolt-actions, shotguns): fill it, "rounds" cannot be set.
-			weapon.FillInnerMagazine("", WeaponWithAmmoFlags.CHAMBER);
-			return "in hands: " + words[1] + " with internal magazine (" + weapon.GetInternalMagazineCartridgeCount(muzzle).ToString() + " rounds)";
-		}
+			return "in hands: " + words[1] + " (no magazine spawned)";
 		if (words.Count() > 3)
 			mag.ServerSetAmmoCount(words[3].ToInt());
 		return "in hands: " + words[1] + " with " + mag.GetType() + " (" + mag.GetAmmoCount().ToString() + " rounds)";
@@ -182,9 +191,9 @@ class DayZVRServerCmd
 		CarScript car = CarScript.Cast(object);
 		if (car)
 		{
-			// Enough parts and fluids to drive straight away; wheel attachment class is
-			// <vehicle>Wheel for the vanilla cars, batteries and plugs are shared.
-			string wheel = words[1] + "Wheel";
+			// Enough parts and fluids to drive straight away. Wheel classes follow no
+			// single pattern (4_World/Entities/Vehicles/InheritedCars), so map them.
+			string wheel = WheelClass(words[1]);
 			for (int i = 0; i < 5; i++)
 				car.GetInventory().CreateAttachment(wheel);
 			car.GetInventory().CreateAttachment("CarBattery");
@@ -198,6 +207,14 @@ class DayZVRServerCmd
 			return "spawned vehicle " + words[1] + " at " + pos.ToString();
 		}
 		return "spawned " + words[1] + " at " + pos.ToString();
+	}
+
+	protected static string WheelClass(string vehicle)
+	{
+		if (vehicle == "OffroadHatchback") return "HatchbackWheel";
+		if (vehicle == "CivilianSedan") return "CivSedanWheel";
+		if (vehicle.IndexOf("Truck_01") == 0) return "Truck_01_Wheel";
+		return vehicle + "_Wheel"; // Hatchback_02, Sedan_02, Offroad_02, Truck_02
 	}
 
 	protected string Teleport(PlayerBase player, array<string> words)
@@ -226,6 +243,63 @@ class DayZVRServerCmd
 			pos[1] = GetGame().SurfaceY(pos[0], pos[2]) + 0.5;
 		player.SetPosition(pos);
 		return "teleported to " + pos.ToString();
+	}
+
+	// Puts the player beside the driver's door of the nearest vehicle (<= 50 m), so the
+	// client's "enter" command passes the vanilla reach check.
+	protected string TeleportToVehicle(PlayerBase player, array<string> words)
+	{
+		vector offset = "-1.6 0 0.3";
+		if (words.Count() >= 4)
+			offset = Vector(words[1].ToFloat(), words[2].ToFloat(), words[3].ToFloat());
+		Transport nearest = NearestVehicle(player, 50);
+		if (!nearest)
+			return "no vehicle within 50 m";
+		// Default: driver's door on the model's left (-x), one metre out from the body.
+		vector pos = nearest.ModelToWorld(offset);
+		pos[1] = GetGame().SurfaceY(pos[0], pos[2]) + 0.3;
+		player.SetPosition(pos);
+		return "teleported beside " + nearest.GetType() + " at " + pos.ToString();
+	}
+
+	protected Transport NearestVehicle(PlayerBase player, float radius)
+	{
+		array<Object> objects = new array<Object>();
+		array<CargoBase> proxies = new array<CargoBase>();
+		GetGame().GetObjectsAtPosition3D(player.GetPosition(), radius, objects, proxies);
+		Transport nearest;
+		float best = radius * 2;
+		foreach (Object object : objects)
+		{
+			Transport transport = Transport.Cast(object);
+			if (!transport)
+				continue;
+			float distance = vector.Distance(object.GetPosition(), player.GetPosition());
+			if (distance < best)
+			{
+				best = distance;
+				nearest = transport;
+			}
+		}
+		return nearest;
+	}
+
+	// Server-side seat entry: the same command the vanilla ActionGetInTransport starts
+	// (its Start() runs on both machines); here only the server starts it so the
+	// test rig can seat the player without a cursor target. V2 experiment.
+	protected string EnterVehicle(PlayerBase player)
+	{
+		Transport vehicle = NearestVehicle(player, 15);
+		if (!vehicle)
+			return "no vehicle within 15 m";
+		if (vehicle.CrewMember(0))
+			return "driver seat of " + vehicle.GetType() + " is taken";
+		int seat = vehicle.GetSeatAnimationType(0);
+		HumanCommandVehicle command = player.StartCommand_Vehicle(vehicle, 0, seat);
+		if (!command)
+			return "StartCommand_Vehicle failed for " + vehicle.GetType();
+		command.SetVehicleType(vehicle.GetAnimInstance());
+		return "entering driver seat of " + vehicle.GetType() + " (seat anim " + seat.ToString() + ")";
 	}
 
 	protected string Heal(PlayerBase player)

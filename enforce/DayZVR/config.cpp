@@ -23,6 +23,11 @@ class CfgMods
 
 		class defs
 		{
+			class worldScriptModule
+			{
+				value = "";
+				files[] = {"DayZVR/scripts/4_World"};
+			};
 			class missionScriptModule
 			{
 				value = "";

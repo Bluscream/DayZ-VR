@@ -88,6 +88,13 @@ class DayZVRBridge
 		FPrintln(file, "stance=" + movement.m_iStanceIdx.ToString());
 		FPrintln(file, "raised=" + BoolText(movement.IsRaised()));
 		FPrintln(file, "in_vehicle=" + BoolText(player.IsInVehicle()));
+		CarScript car = CarScript.Cast(player.GetParent());
+		if (car)
+		{
+			FPrintln(file, "steering=" + car.GetSteering().ToString());
+			FPrintln(file, "speed=" + car.GetSpeedometer().ToString());
+			FPrintln(file, "driver=" + BoolText(car.CrewDriver() == player));
+		}
 		// Fists (nothing in hands) or a melee weapon: the native side may turn controller
 		// swings into attacks ([melee] motion_swing).
 		EntityAI inHands = player.GetItemInHands();
@@ -115,6 +122,9 @@ class DayZVRBridge
 	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in
 	// $profile:dayzvr/client_cmd.txt, results appended to client_cmd.log.
 	//   raise <0|1>        hold the weapon raised (OverrideRaise ENABLED/DISABLED)
+	//   enter              get into the driver seat of the nearest vehicle (<= 15 m)
+	//                      through the vanilla ActionGetInTransport
+	//   steer <v>|off      script steering override while driving (V2 experiment)
 	//   print <text>       echo into script.log
 	protected void RunClientCommands()
 	{
@@ -166,9 +176,94 @@ class DayZVRBridge
 				hic.OverrideRaise(HumanInputControllerOverrideType.DISABLED, false);
 			return "raise " + words[1];
 		}
+		if (verb == "enter")
+			return EnterNearestVehicle(player);
+		if (verb == "steer" && words.Count() > 1)
+		{
+			if (words[1] == "off")
+				DayZVRSteering.s_Override = -2;
+			else
+				DayZVRSteering.s_Override = Math.Clamp(words[1].ToFloat(), -1, 1);
+			return "steer " + words[1];
+		}
 		if (verb == "print")
 			return "printed";
 		return "unknown client command";
+	}
+
+	protected string EnterNearestVehicle(PlayerBase player)
+	{
+		array<Object> objects = new array<Object>();
+		array<CargoBase> proxies = new array<CargoBase>();
+		GetGame().GetObjectsAtPosition3D(player.GetPosition(), 15, objects, proxies);
+		Transport nearest;
+		float best = 1000;
+		foreach (Object object : objects)
+		{
+			Transport transport = Transport.Cast(object);
+			if (!transport)
+				continue;
+			float distance = vector.Distance(object.GetPosition(), player.GetPosition());
+			if (distance < best)
+			{
+				best = distance;
+				nearest = transport;
+			}
+		}
+		if (!nearest)
+			return "no vehicle within 15 m";
+		ActionManagerClient manager = ActionManagerClient.Cast(player.GetActionManager());
+		if (!manager)
+			return "no client action manager";
+		ActionBase action = manager.GetAction(ActionGetInTransport);
+		if (!action)
+			return "ActionGetInTransport unavailable";
+		// The action wants the component index of a door selection. Try every component
+		// that maps to the driver's crew position (0) until the vanilla condition
+		// (reach, door free, seat empty) accepts one.
+		string tried = "";
+		array<string> selectionsForHit = new array<string>();
+		for (int i = 0; i < 256; i++)
+		{
+			if (nearest.CrewPositionIndex(i) != 0)
+				continue;
+			// The cursor condition measures from the hit position, so aim it at the seat.
+			vector hit = nearest.GetPosition();
+			if (selectionsForHit.Count() == 0)
+				nearest.GetActionComponentNameList(i, selectionsForHit);
+			if (selectionsForHit.Count() > 0)
+				hit = nearest.GetSelectionPositionWS(selectionsForHit[0]);
+			selectionsForHit.Clear();
+			ActionTarget target = new ActionTarget(nearest, null, i, hit, 0);
+			if (action.Can(player, target, null))
+			{
+				manager.PerformActionStart(action, target, null);
+				return "entering " + nearest.GetType() + " via component " + i.ToString();
+			}
+			// Spell out the vanilla ActionCondition so the failing check is visible.
+			array<string> selections = new array<string>();
+			nearest.GetActionComponentNameList(i, selections);
+			tried += " " + i.ToString() + "(";
+			foreach (string selection : selections)
+				tried += selection + " reach=" + BoolText(nearest.CanReachSeatFromDoors(selection, player.GetPosition(), 1.0)) + ",";
+			tried += " through=" + BoolText(nearest.CrewCanGetThrough(0));
+			tried += " doorfree=" + BoolText(nearest.IsAreaAtDoorFree(0));
+			tried += " seatfree=" + BoolText(!nearest.CrewMember(0));
+			tried += " heavy=" + BoolText(player.GetItemInHands() && player.GetItemInHands().IsHeavyBehaviour());
+			tried += " invehicle=" + BoolText(player.GetCommand_Vehicle() != null);
+			tried += ")";
+		}
+		if (tried == "")
+			return "no driver door component on " + nearest.GetType();
+		// The vanilla action's Start() runs StartCommand_Vehicle on both machines; when
+		// the action cannot be requested (no cursor target in the test rig), start the
+		// command locally and let the server command "enter" do its half.
+		int seat = nearest.GetSeatAnimationType(0);
+		HumanCommandVehicle command = player.StartCommand_Vehicle(nearest, 0, seat);
+		if (!command)
+			return "cannot get in " + nearest.GetType() + " at " + best.ToString() + " m; driver components tried:" + tried + "; local StartCommand_Vehicle failed";
+		command.SetVehicleType(nearest.GetAnimInstance());
+		return "local vehicle command started for " + nearest.GetType() + " (action refused:" + tried + "); run the server 'enter' too";
 	}
 
 	protected static string BoolText(bool value)

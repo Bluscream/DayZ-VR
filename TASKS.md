@@ -213,6 +213,24 @@ detour. Update the entry when you touch the track; keep history in git, not here
   engine state into game.txt for a wrist dashboard.
 - Open: whether `Car.SetSteering`-style script APIs exist client-side (grep
   `proto native` in Car/CarScript); analog steering via a virtual gamepad instead.
+- State (2026-10-02 07:55, test rig): `scripts/dayz-cmd.sh spawn OffroadHatchback`
+  (wheels mapped per model: HatchbackWheel, CivSedanWheel, Truck_01_Wheel, <type>_Wheel),
+  `tpto [dx dy dz]` stands the player at the driver's door, server `enter` runs
+  `StartCommand_Vehicle(vehicle, 0, seat)` like the vanilla action's Start(), client
+  `--client enter` requests `ActionGetInTransport` (needs a cursor hit position at the
+  seat selection for `CCTCursorNoRuinCheck`; all sub-conditions pass) and falls back to
+  the local `StartCommand_Vehicle`. Result so far: the server seats the player (a second
+  `enter` reports the seat taken) but the client never reports `in_vehicle=1`; the
+  action request path also starts nothing visible. Spawned cars are deleted when the
+  client reconnects (not CE-registered), so spawn+enter must happen in one session.
+  Steering experiment is wired: `--client steer <v>|off` sets `DayZVRSteering.s_Override`
+  and `modded class CarScript.OnUpdate` calls `SetSteering` while the local player
+  drives; game.txt gets `steering=`, `speed=`, `driver=` once in a car. Untested until
+  entry works.
+- Next (entry): read `HumanCommandVehicle`/`CrewGetIn` flow on the client (the netsync
+  may need the command to start on the client first and the server to confirm), or
+  drive the vanilla action through the real input path (sim controller "F" via the
+  host's RGRAB mapping while a GUI-less cursor target exists). Then test `steer`.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash
@@ -313,6 +331,7 @@ remember that i told the other agent that titanfall2vr is the gold-standard for 
 if you get stuck getting stereo to work, maybe look at some existing vr mod code that is locally cloned, online, or clone yourself to .references/
 i think the other agent also started decompiling some parts of the dayz binary if that helps at all uwu
 hand tracking also means finger curling and hand tracking support as much as possible, and obviously ingame hands must match irl hands/controller placement/rotation
+also dont forget about things like vignettes, weapon scopes and overlays like night vision, flashbang, etc they all need to look good in vr
 
 last agent response:
 Deployed. Adding the in-game settings UI track to TASKS.md and relaunching in the same step.
