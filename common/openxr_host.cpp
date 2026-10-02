@@ -1090,10 +1090,10 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
             rightAim.pose.orientation.y, rightAim.pose.orientation.z,
             rightAim.pose.orientation.w, valid);
     }
-#ifndef _WINDLL
-    (void)guiVisible;
-    return;
-#endif
+    // vr_common is shared by the DLL and the standalone probe. _WINDLL describes
+    // how this translation unit was compiled, not which host is using it.
+    if (!gameSwapChain_)
+        return;
     const auto vectorState = [&](std::size_t hand) {
         XrActionStateVector2f state(MakeXr<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F));
         XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
@@ -1288,10 +1288,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
             {
                 cursorHit = true;
                 currentGuiRayLength_ = distance;
-#ifdef _WINDLL
                 dayz::runtime_probe::SetGuiVirtualCursorNormalized(
                     x / guiQuadWidthMeters_ + 0.5f, 0.5f - y / height);
-#endif
             }
         }
     }
@@ -1345,12 +1343,8 @@ void OpenXrHost::RenderFrame()
     const bool located = Check(xrLocateViews(session_, &locate, &viewState,
         static_cast<std::uint32_t>(views_.size()), &viewCount, views_.data()), "xrLocateViews") && viewCount == 2;
 
-#ifdef _WINDLL
-    const bool guiVisible = guiQuadEnabled_ && guiSwapchain_.handle != XR_NULL_HANDLE &&
+    const bool guiVisible = gameSwapChain_ && guiQuadEnabled_ && guiSwapchain_.handle != XR_NULL_HANDLE &&
         dayz::runtime_probe::IsGuiQuadVisible();
-#else
-    const bool guiVisible = false;
-#endif
     if (frameState.shouldRender && located)
     {
         dayz::stereo_state::UpdateEyePositions(
@@ -1470,11 +1464,9 @@ void OpenXrHost::RenderFrame()
                 if (Check(xrWaitSwapchainImage(guiSwapchain_.handle, &imageWait),
                     "xrWaitSwapchainImage(gui)"))
                 {
-#ifdef _WINDLL
                     guiQuadHasImage_ = dayz::runtime_probe::RenderGuiQuad(
                         guiSwapchain_.rtvs[imageIndex].Get(), guiSwapchain_.width,
                         guiSwapchain_.height) || guiQuadHasImage_;
-#endif
                 }
                 XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
                 Check(xrReleaseSwapchainImage(guiSwapchain_.handle, &release),

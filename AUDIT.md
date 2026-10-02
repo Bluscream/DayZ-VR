@@ -32,6 +32,7 @@ Unless marked reproduced, these are static control-flow findings.
 | ID | Priority | Evidence and consequence | Required correction |
 | --- | --- | --- | --- |
 | B01 | P1 | `ammo_display.hpp:32`: missing `<string>`; reproduced cross-build failure. | Make the header self-contained and run the full gate. |
+| B02 | P1 | Follow-up: `vr_common` is a static library without `_WINDLL`; `openxr_host.cpp` uses that macro to select the standalone path, compiling out game controller injection and VR GUI for the proxy too. Confirmed in generated `flags.make`. | Select game behavior from the attached game swapchain at runtime, and validate the compiled path in the simulator. |
 | X01 | P1 | `openxr_host.cpp:1354-1368,1056-1063,958-966`: held controller input is not released on no-render frames, locate/sync failure, or loss of focus/session. | Separate input cleanup from rendering and release held state at every loss boundary. |
 | X02 | P1 | `openxr_host.cpp:1345-1365`: view validity bits are ignored, yet pose fields are published as valid. | Require valid orientation and position before reading/publishing poses; clear stale tracking. |
 | X03 | P1 | `openxr_host.cpp:1425-1458,1643`: a failed eye acquire leaves a zeroed view in a submitted two-view layer. | Submit projection only after both eyes finish successfully. |
