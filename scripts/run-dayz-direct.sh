@@ -10,6 +10,12 @@
 #
 # The game runs detached; stdout/stderr go to build/logs/dayz-direct.log and the
 # Proton log to build/logs/steam-221100.log. Stop it with scripts/build.sh --stop.
+# Before each start, old output is pruned so nothing grows without bound: DayZ's
+# crash/script/RPT logs and minidumps keep the newest KEEP_RUNS (default 3) of each
+# kind, dayz_openxr.log is rotated to .1 once it passes LOG_ROTATE_MB (default 64),
+# build/logs screenshots keep the newest 10 and deploy backups the newest 5.
+# The line number of dayz_openxr.log at launch is written to
+# build/logs/openxr-log-offset.txt for scripts/dayz-status.sh.
 # Environment overrides: DAYZ_DIR, STEAM_LIBRARY (library holding compatdata/221100),
 # STEAM_ROOT (client install, default ~/.local/share/Steam), PROTON_DIR, SLR_DIR.
 set -euo pipefail
@@ -37,7 +43,7 @@ while (( $# )); do
   case "$1" in
     --sim) use_sim=1 ;;
     --) shift; game_args+=("$@"); break ;;
-    -h | --help) sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
@@ -52,6 +58,37 @@ if pgrep -f 'DayZ_x6[4]\.exe|DayZLaunche[r]\.exe' >/dev/null; then
   die "DayZ is already running; stop it first (scripts/build.sh --stop)"
 fi
 mkdir -p "$log_dir"
+
+# --- prune past output ------------------------------------------------------------
+keep_runs="${KEEP_RUNS:-3}"
+rotate_mb="${LOG_ROTATE_MB:-64}"
+appdata_dayz="$compat_data/pfx/drive_c/users/steamuser/AppData/Local/DayZ"
+prune_newest() {
+  # prune_newest <keep> <dir> <glob>: delete all but the newest <keep> matches.
+  local keep="$1" dir="$2" glob="$3" removed=0 file
+  [[ -d "$dir" ]] || return 0
+  while IFS= read -r file; do
+    rm -f -- "$file"; removed=$(( removed + 1 ))
+  done < <(find "$dir" -maxdepth 1 -name "$glob" -printf '%T@ %p\n' | sort -rn | tail -n +"$((keep + 1))" | cut -d' ' -f2-)
+  (( removed )) && say "pruned $removed old $glob from $(basename -- "$dir")"
+  return 0
+}
+for glob in 'crash_*.log' 'script_*.log' 'DayZ_x64_*.RPT' 'DayZ_x64_*.mdmp' 'info_*.log' 'warning_*.log' 'error_*.log'; do
+  prune_newest "$keep_runs" "$appdata_dayz" "$glob"
+done
+prune_newest 10 "$log_dir" 'screen-*.png'
+if [[ -d "$project_dir/build/deploy-backup" ]]; then
+  while IFS= read -r dir; do rm -rf -- "$dir"; say "pruned deploy backup $(basename -- "$dir")"; done \
+    < <(find "$project_dir/build/deploy-backup" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +6)
+fi
+openxr_log="$dayz_dir/dayz_openxr.log"
+if [[ -f "$openxr_log" ]] && (( $(stat -c %s "$openxr_log") > rotate_mb * 1024 * 1024 )); then
+  mv -f -- "$openxr_log" "$openxr_log.1"
+  say "rotated dayz_openxr.log (> ${rotate_mb} MB) to dayz_openxr.log.1"
+fi
+rm -f -- "$dayz_dir"/dayz_openxr_eye*.bmp
+{ [[ -f "$openxr_log" ]] && wc -l < "$openxr_log" || echo 0; } > "$log_dir/openxr-log-offset.txt"
+# ----------------------------------------------------------------------------------
 
 env_list=(
   "STEAM_COMPAT_APP_ID=$app_id"
