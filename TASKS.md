@@ -115,6 +115,52 @@ detour. Update the entry when you touch the track; keep history in git, not here
 - Next: enable the matching extensions when available before suggesting those profiles;
   haptics on fire (needs S2 or a draw-call heuristic); gesture reload; two-handed grip.
 
+## G1. Game and server control for testing (spawn, teleport, vehicles)
+- State: the local server (`scripts/local-server.sh`, podman, verifySignatures=0) has no
+  command channel beyond BattlEye RCON (kick/ban/say only). The client bridge (S2) can
+  only read the player. Fresh characters spawn with no weapon, so weapon/hand pose,
+  ammo counter and melee features cannot be inspected without spawning gear.
+- Next: a server-side Enforce mod `enforce/DayZVR_Server` (loaded with `-serverMod=`)
+  that polls `$profile:dayzvr/cmd.txt` in the server's profile volume and executes
+  lines: `give <class> [count]` (CreateInInventory on the first player, magazines via
+  `SpawnAttachedMagazine`/`CreateInInventory`), `hands <class>` (weapon into hands with
+  a full magazine), `spawn <class> [x y z]` (CreateObject near the player, vehicles with
+  wheels/battery/spark plug/fuel), `tp <x> <y> <z>` / `tp <preset>` (SetPosition), `heal`,
+  `time <h>`, `weather clear`; host wrapper `scripts/dayz-cmd.sh give M4A1` writing into
+  the podman volume; results logged to `$profile:dayzvr/cmd.log` and shown by
+  `dayz-status.sh`. Then: `scripts/dayz-status.sh` screenshot + `dayz-vr-ctl.py dump-eyes`
+  to inspect weapon/hand model rotations under controller aim.
+- Open: whether the client mod can request this itself (RPC to the server mod) so one
+  `@DayZVR` on both sides suffices; admin-only gating for public use.
+
+## M2. Motion-controlled melee
+- State: idea. DayZ melee is a key press with animation (`MeleeCombat`, `DayZPlayerMeleeFightLogic_LightHeavy`), hit detection server-side from the animation. Controller
+  pose and velocity are available natively (grip pose per frame).
+- Next: (1) native: swing detection from right-controller velocity (speed threshold,
+  direction) → emit the melee key (light tap, heavy on fast swing) only while a melee
+  weapon or fists are in hands (game.txt weapon class / `weapon=` empty + no item);
+  (2) hand-model alignment: controller aim already drives the camera, melee needs the
+  weapon rotation to follow the hand (Enforce: `player.GetItemInHands()` has no public
+  transform override; investigate `DayZPlayerImplement` bone override / `Human` IK or
+  native camera-relative transform patch); (3) haptics on hit (server → client RPC via
+  the bridge, or draw-call heuristic). Gate everything behind `[melee]` ini keys.
+- Open: anti-cheat/serverside acceptance of rapid melee; fists vs knife vs hammer
+  animations differ in timing.
+
+## V2. Vehicles: controller steering and grips
+- State: idea. Steering is keyboard (A/D) through the host's controller→key mapping;
+  no analog wheel. `IsInVehicle` reaches the native side via game.txt.
+- Next: (1) spawn a vehicle with G1 and sit in it; (2) native: when `in_vehicle=1`,
+  map controller grip position (both hands on a virtual wheel: angle between the
+  two grip positions, or single-hand angle about the wheel centre) to left/right key
+  pulses proportional to angle (DayZ has no analog steering input; pulse-width the
+  keys per frame like the aim loop does with mouse counts); throttle on trigger,
+  brake on grip; (3) seated recenter (`[comfort]` head height) and view lock to the
+  vehicle yaw option; (4) Enforce side: `CarScript.GetSpeedometer()`, gear, fuel,
+  engine state into game.txt for a wrist dashboard.
+- Open: whether `Car.SetSteering`-style script APIs exist client-side (grep
+  `proto native` in Car/CarScript); analog steering via a virtual gamepad instead.
+
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash
   not reproducible headless; crash reporter logs an event trail on the next real crash.
