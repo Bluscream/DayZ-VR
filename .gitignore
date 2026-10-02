@@ -44,3 +44,6 @@ Desktop.ini
 
 # Python bytecode from the helper scripts
 __pycache__/
+
+# Offline reference material (symlink to the shared ArmA VR references, multi-GB)
+.references
