@@ -78,6 +78,8 @@ cmd_start() {
   local compositor_env
   if [[ "${SIM_COMPOSITOR:-window}" == "null" ]]; then
     compositor_env="XRT_COMPOSITOR_NULL=1"
+    say "WARNING: SIM_COMPOSITOR=null uses Monado's null compositor, which hard-codes a 20 fps frame interval:"
+    say "         the game will run below 20 fps (xrWaitFrame blocks ~45 ms per frame). Unset SIM_COMPOSITOR for 75+ fps."
   else
     compositor_env="XRT_COMPOSITOR_FORCE_WAYLAND=1"
   fi
