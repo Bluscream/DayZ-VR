@@ -24,6 +24,8 @@ namespace
         Expect(ParseCommand("get\r\n").kind == CommandKind::Get, "get");
         Expect(ParseCommand("  tunables ").kind == CommandKind::Tunables, "tunables");
         Expect(ParseCommand("recenter").kind == CommandKind::Recenter, "recenter");
+        Expect(ParseCommand("haptic").kind == CommandKind::Haptic, "haptic");
+        Expect(ParseCommand("haptic now").kind == CommandKind::Invalid, "haptic takes no arguments");
         Expect(ParseCommand("ping").kind == CommandKind::Ping, "ping");
         const Command set = ParseCommand("set stereo.hmd_mouse_yaw_scale -300.5\n");
         Expect(set.kind == CommandKind::Set, "set kind");

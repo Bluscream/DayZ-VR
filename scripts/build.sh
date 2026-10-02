@@ -100,6 +100,7 @@ step_test() {
   run_in_container "g++ $gpp_flags tests/melee_swing_test.cpp common/melee_swing.cpp -o build/melee_swing_test && ./build/melee_swing_test" 2>&1 | tee "$log_dir/test-melee-swing.log"
   run_in_container "g++ $gpp_flags tests/vehicle_steering_test.cpp common/vehicle_steering.cpp -o build/vehicle_steering_test && ./build/vehicle_steering_test" 2>&1 | tee "$log_dir/test-vehicle-steering.log"
   run_in_container "g++ $gpp_flags tests/physical_stance_test.cpp common/physical_stance.cpp -o build/physical_stance_test && ./build/physical_stance_test" 2>&1 | tee "$log_dir/test-physical-stance.log"
+  run_in_container "g++ $gpp_flags tests/shot_detector_test.cpp common/shot_detector.cpp -o build/shot_detector_test && ./build/shot_detector_test" 2>&1 | tee "$log_dir/test-shot-detector.log"
   run_in_container "g++ $gpp_flags -pthread tests/projection_replay_test.cpp -o build/projection_replay_test && ./build/projection_replay_test" 2>&1 | tee "$log_dir/test-projection-replay.log"
   run_in_container "g++ $gpp_flags -pthread tests/stereo_state_test.cpp common/stereo_state.cpp -o build/stereo_state_test && ./build/stereo_state_test" 2>&1 | tee "$log_dir/test-stereo-state.log"
   run_in_container "g++ $gpp_flags tests/present_frame_test.cpp -o build/present_frame_test && ./build/present_frame_test" 2>&1 | tee "$log_dir/test-present-frame.log"

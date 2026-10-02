@@ -175,8 +175,16 @@ detour. Update the entry when you touch the track; keep history in git, not here
   exposes them (named as strings, the vendored SDK predates most) and their bindings
   are suggested only then; Monado exposes all five and all eight profiles bind (Vive
   Cosmos only has `squeeze/click`, so its binding set uses that; no -22 left).
-- Next: haptics on fire (needs S2 or a
-  draw-call heuristic); gesture reload; two-handed grip.
+- State (09:05): haptics on fire: a vibration action bound on every profile
+  (`output/haptic`, both hands), `common/shot_detector.*` turns the bridge's
+  magazine+chamber readback into shot events (drop of exactly one, same weapon,
+  no bridge gap), `[haptics] fire/fire_seconds/fire_amplitude` live tunables,
+  `dayz-vr-ctl.py haptic` test pulse. Verified on the sim: client `fire` (new test
+  verb, WeaponManager.Fire) twice -> two "haptic pulse: shot from M4A1" lines.
+  Detection lags the shot by up to one bridge interval (100 ms); a native hook on the
+  weapon fire event would remove that.
+- Next: gesture reload; two-handed grip; haptics for melee hits and vehicle
+  collisions (bridge has no event for either yet).
 
 ## G1. Game and server control for testing (spawn, teleport, vehicles)
 - State: `enforce/DayZVR_Server` and `scripts/dayz-cmd.sh` implement local-server

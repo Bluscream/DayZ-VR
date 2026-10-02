@@ -65,6 +65,9 @@ namespace
         case CommandKind::Recenter:
             return FormatResult(g_host.run_command(g_host.context, "recenter"),
                 "unknown command", "command failed");
+        case CommandKind::Haptic:
+            return FormatResult(g_host.run_command(g_host.context, "haptic"),
+                "unknown command", "command failed");
         case CommandKind::DumpEyes:
             return FormatResult(g_host.run_command(g_host.context, "dump_eyes"),
                 "unknown command", "command failed");

@@ -148,6 +148,7 @@ class DayZVRBridge
 	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in
 	// $profile:dayzvr/client_cmd.txt, results appended to client_cmd.log.
 	//   raise <0|1>        hold the weapon raised (OverrideRaise ENABLED/DISABLED)
+	//   fire               pull the trigger once through WeaponManager.Fire (test aid)
 	//   enter              get into the driver seat of the nearest vehicle (<= 15 m)
 	//                      (vehicle command queued for the CommandHandler tick)
 	//   exit               leave the current vehicle (same mechanism)
@@ -211,6 +212,16 @@ class DayZVRBridge
 				return "not in a vehicle";
 			player.m_DayZVRGetOut = true;
 			return "leaving the vehicle on the next CommandHandler tick; run the server 'exit' too";
+		}
+		if (verb == "fire")
+		{
+			Weapon_Base weapon = Weapon_Base.Cast(player.GetItemInHands());
+			if (!weapon)
+				return "no firearm in hands";
+			if (!player.GetWeaponManager().CanFire(weapon))
+				return "cannot fire now (raise it first, wait for the raise to finish)";
+			player.GetWeaponManager().Fire(weapon);
+			return "fired " + weapon.GetType();
 		}
 		if (verb == "steer" && words.Count() > 1)
 		{

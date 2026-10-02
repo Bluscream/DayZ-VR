@@ -3,6 +3,7 @@
 #include "dayz_runtime_probe.hpp"
 #include "frame_source.hpp"
 #include "melee_swing.hpp"
+#include "shot_detector.hpp"
 #include "physical_stance.hpp"
 #include "vehicle_steering.hpp"
 #include "xr_structure.hpp"
@@ -34,6 +35,8 @@ public:
     // Debug: request the captured eye images be written as BMP beside
     // DayZ_x64.exe. Executed on the render thread at the next frame because
     // the immediate context must not be used from the debug plugin thread.
+    // Protocol command "haptic": test pulse on the right controller.
+    bool TestHaptic() noexcept;
     bool DumpEyeCaptures() noexcept;
 
     bool InitializeWithDevice(ID3D11Device* device) noexcept;
@@ -116,6 +119,11 @@ private:
     bool UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept;
     void PublishVehicleSteering() noexcept;
     void UpdatePhysicalStance(XrTime displayTime) noexcept;
+    void UpdateFireHaptics() noexcept;
+    // Pulses one controller (0 left, 1 right). seconds/amplitude clamped; false when
+    // haptics are unavailable (no actions, session not focused, runtime error).
+    bool PulseHaptic(int hand, float seconds, float amplitude) noexcept;
+
     void ReleaseControllerKeys() noexcept; // ReleaseInjectedInput + forget controller poses
     void PollEvents();
     void RenderFrame();
@@ -162,6 +170,7 @@ private:
     XrAction bButtonAction_{XR_NULL_HANDLE};
     XrAction thumbstickAction_{XR_NULL_HANDLE};
     XrAction thumbstickClickAction_{XR_NULL_HANDLE};
+    XrAction hapticAction_{XR_NULL_HANDLE};
     std::array<XrPath, 2> handPaths_{{XR_NULL_PATH, XR_NULL_PATH}};
     std::array<XrSpace, 2> gripSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
     std::array<XrSpace, 2> aimSpaces_{{XR_NULL_HANDLE, XR_NULL_HANDLE}};
@@ -217,7 +226,13 @@ private:
     XrTime stanceKeyReleaseTime_{};
     WORD stanceKey_{};
     XrTime stanceNextChangeTime_{};
-    std::array<dayz::runtime_probe::ExternalTunable, 20> hostTunables_{};
+    // Haptics ([haptics]): a pulse per fired round detected from the bridge ammo count.
+    std::atomic<float> hapticsFire_{1.0f};
+    std::atomic<float> hapticsFireSeconds_{0.08f};
+    std::atomic<float> hapticsFireAmplitude_{0.8f};
+    dayz::shot::Detector shotDetector_;
+    unsigned hapticPulses_{};
+    std::array<dayz::runtime_probe::ExternalTunable, 23> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

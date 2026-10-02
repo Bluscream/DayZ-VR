@@ -5,6 +5,7 @@
 //   tunables            -> JSON object {"name": value, ...}
 //   set <name> <value>  -> {"ok":true} or {"ok":false,"error":"..."}
 //   recenter            -> {"ok":true}
+//   haptic              -> {"ok":true}  (test vibration on the right controller)
 //   dump_eyes           -> {"ok":true}  (writes dayz_openxr_eye0/1.bmp beside the exe)
 //   ping                -> {"ok":true,"pong":true}
 // Every reply is exactly one line.
@@ -22,7 +23,7 @@
 
 namespace dayz::debug_protocol
 {
-    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, DumpEyes, Ping };
+    enum class CommandKind { Invalid, Get, Tunables, Set, Recenter, Haptic, DumpEyes, Ping };
 
     struct Command
     {
@@ -56,6 +57,8 @@ namespace dayz::debug_protocol
             command.kind = CommandKind::Tunables;
         else if (verb == "recenter")
             command.kind = CommandKind::Recenter;
+        else if (verb == "haptic")
+            command.kind = CommandKind::Haptic;
         else if (verb == "dump_eyes")
             command.kind = CommandKind::DumpEyes;
         else if (verb == "ping")

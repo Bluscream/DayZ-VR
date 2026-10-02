@@ -184,6 +184,8 @@ namespace
             logging::Info(written ? "Debug plugin dumped eye captures" : "Debug plugin eye dump failed");
             return written ? 0 : -2;
         }
+        if (name && _stricmp(name, "haptic") == 0)
+            return OpenXrHost::Instance().TestHaptic() ? 0 : -2;
         if (name && _stricmp(name, "recenter") == 0)
         {
             dayz::runtime_probe::RecenterHmd();

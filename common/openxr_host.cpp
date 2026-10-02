@@ -403,7 +403,8 @@ bool OpenXrHost::CreateControllerActions()
         !createAction("thumbstick", "Thumbstick", XR_ACTION_TYPE_VECTOR2F_INPUT,
             thumbstickAction_) ||
         !createAction("thumbstick_click", "Thumbstick Click", XR_ACTION_TYPE_BOOLEAN_INPUT,
-            thumbstickClickAction_))
+            thumbstickClickAction_) ||
+        !createAction("haptic", "Haptic", XR_ACTION_TYPE_VIBRATION_OUTPUT, hapticAction_))
         return false;
 
     const auto path = [&](const char* text) {
@@ -412,7 +413,10 @@ bool OpenXrHost::CreateControllerActions()
         return result;
     };
     const auto suggest = [&](const char* profile,
-        const std::vector<XrActionSuggestedBinding>& bindings) {
+        std::vector<XrActionSuggestedBinding> bindings) {
+        // Every supported profile exposes output/haptic on both hands.
+        bindings.push_back({hapticAction_, path("/user/hand/left/output/haptic")});
+        bindings.push_back({hapticAction_, path("/user/hand/right/output/haptic")});
         XrInteractionProfileSuggestedBinding info(MakeXr<XrInteractionProfileSuggestedBinding>(XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING));
         info.interactionProfile = path(profile);
         info.countSuggestedBindings = static_cast<std::uint32_t>(bindings.size());
@@ -903,6 +907,9 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     stanceCrouchDrop_ = (std::clamp)(ReadFloat(L"stance", L"crouch_drop", 0.35f), 0.05f, 1.5f);
     stanceProneDrop_ = (std::clamp)(ReadFloat(L"stance", L"prone_drop", 0.85f), 0.1f, 2.0f);
     stanceHysteresis_ = (std::clamp)(ReadFloat(L"stance", L"hysteresis", 0.08f), 0.0f, 0.5f);
+    hapticsFire_ = ReadBoolean(L"haptics", L"fire", true) ? 1.0f : 0.0f;
+    hapticsFireSeconds_ = (std::clamp)(ReadFloat(L"haptics", L"fire_seconds", 0.08f), 0.01f, 1.0f);
+    hapticsFireAmplitude_ = (std::clamp)(ReadFloat(L"haptics", L"fire_amplitude", 0.8f), 0.0f, 1.0f);
     // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
     hostTunables_ = {{
         {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
@@ -925,6 +932,9 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         {"stance.crouch_drop", &stanceCrouchDrop_, 0.05f, 1.5f},
         {"stance.prone_drop", &stanceProneDrop_, 0.1f, 2.0f},
         {"stance.hysteresis", &stanceHysteresis_, 0.0f, 0.5f},
+        {"haptics.fire", &hapticsFire_, 0.0f, 1.0f},
+        {"haptics.fire_seconds", &hapticsFireSeconds_, 0.01f, 1.0f},
+        {"haptics.fire_amplitude", &hapticsFireAmplitude_, 0.0f, 1.0f},
     }};
     dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
@@ -1169,6 +1179,55 @@ void OpenXrHost::PublishVehicleSteering() noexcept
 
 // Feeds the right grip position to the swing detector and holds DayZ's attack
 // button (left mouse) for a tap or a heavy-attack hold. Returns true while held.
+bool OpenXrHost::PulseHaptic(int hand, float seconds, float amplitude) noexcept
+{
+    if (hapticAction_ == XR_NULL_HANDLE || hand < 0 || hand >= static_cast<int>(handPaths_.size()) ||
+        sessionState_ != XR_SESSION_STATE_FOCUSED)
+        return false;
+    XrHapticActionInfo info(MakeXr<XrHapticActionInfo>(XR_TYPE_HAPTIC_ACTION_INFO));
+    info.action = hapticAction_;
+    info.subactionPath = handPaths_[static_cast<std::size_t>(hand)];
+    XrHapticVibration vibration(MakeXr<XrHapticVibration>(XR_TYPE_HAPTIC_VIBRATION));
+    vibration.duration = static_cast<XrDuration>((std::clamp)(seconds, 0.01f, 1.0f) * 1.0e9f);
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = (std::clamp)(amplitude, 0.0f, 1.0f);
+    const XrResult result = xrApplyHapticFeedback(session_, &info,
+        reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    if (XR_FAILED(result))
+    {
+        logging::XrError("xrApplyHapticFeedback", result);
+        return false;
+    }
+    ++hapticPulses_;
+    return true;
+}
+
+bool OpenXrHost::TestHaptic() noexcept
+{
+    const bool pulsed = PulseHaptic(1, 0.25f, 1.0f);
+    logging::Info(pulsed ? "Haptic test pulse sent to the right controller"
+                         : "Haptic test pulse failed (no haptic action or session not focused)");
+    return pulsed;
+}
+
+void OpenXrHost::UpdateFireHaptics() noexcept
+{
+    // Shots are detected from the bridge's ammo readback (magazine + chamber drops by
+    // one), so no draw-call heuristic is needed; melee swings do not count.
+    const dayz::script_bridge::GameState game = dayz::script_bridge::GetGameState();
+    const int shots = shotDetector_.Update(game.valid ? game.frame : -1, game.weapon, game.ammo, game.chamber);
+    if (shots <= 0 || hapticsFire_.load(std::memory_order_relaxed) < 0.5f)
+        return;
+    if (PulseHaptic(1, hapticsFireSeconds_.load(std::memory_order_relaxed),
+            hapticsFireAmplitude_.load(std::memory_order_relaxed)))
+    {
+        std::ostringstream message;
+        message << "haptic pulse: shot from " << game.weapon << " (" << game.ammo
+                << (game.chamber ? "+1" : "") << " left), pulses=" << hapticPulses_;
+        logging::Info(message.str());
+    }
+}
+
 bool OpenXrHost::UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept
 {
     if (meleeReleaseTime_ && displayTime >= meleeReleaseTime_)
@@ -1515,6 +1574,7 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);
     if (!guiVisible)
         UpdatePhysicalStance(displayTime);
+    UpdateFireHaptics();
     const bool desiredLeftMouse = meleeHeld || (!driving && rightTriggerState.isActive &&
         rightTriggerState.currentState > 0.55f);
     if (desiredLeftMouse != leftMouseDown_)
