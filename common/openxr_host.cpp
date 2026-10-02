@@ -1561,7 +1561,9 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         "controller Y -> R down", "controller Y -> R up");
     updateKey(VK_TAB, yDown && leftGrabDown, tabKeyDown_,
         "controller LGRAB+Y -> Tab down", "controller LGRAB+Y -> Tab up");
-    updateKey('F', rightGrabDown, rightGrabDown_,
+    // Not while driving: the two-hand wheel needs both grips held, and a held F is
+    // "Get out" once the vehicle is set up (headset test: grip ejected the driver).
+    updateKey('F', rightGrabDown && !driving, rightGrabDown_,
         "controller RGRAB -> F down", "controller RGRAB -> F up");
     // While driving, A (engine), LGRAB+A (headlights) and the right stick click (horn)
     // belong to the @DayZVR mod, which reads them from vr.txt; B stays the handbrake.
