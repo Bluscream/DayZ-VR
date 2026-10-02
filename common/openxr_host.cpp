@@ -1035,6 +1035,7 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
     dayz::script_bridge::SetVehicleSteer(0.0f, false);
+    dayz::script_bridge::SetVehiclePedals(0.0f, 0.0f, false);
 }
 
 // Two-hand wheel from both grips -> vr.txt steer= (applied by the Enforce side only
@@ -1307,6 +1308,14 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     const XrActionStateFloat rightGrabState = floatState(grabAction_, 1);
     const XrActionStateFloat leftTriggerState = floatState(triggerAction_, 0);
     const XrActionStateFloat rightTriggerState = floatState(triggerAction_, 1);
+    // Driving: the triggers are pedals for the script side (right throttle, left
+    // brake) instead of mouse buttons.
+    const bool driving = dayz::script_bridge::GetGameState().inVehicle &&
+        vehicleSteering_.load(std::memory_order_relaxed) != 0.0f;
+    dayz::script_bridge::SetVehiclePedals(
+        rightTriggerState.isActive ? (std::clamp)(rightTriggerState.currentState, 0.0f, 1.0f) : 0.0f,
+        leftTriggerState.isActive ? (std::clamp)(leftTriggerState.currentState, 0.0f, 1.0f) : 0.0f,
+        driving && (rightTriggerState.isActive || leftTriggerState.isActive));
     const bool xDown = xState.isActive && xState.currentState;
     if (recenterOnStickClick_)
     {
@@ -1380,14 +1389,14 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         "controller LGRAB+B");
 
     const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);
-    const bool desiredLeftMouse = meleeHeld || (rightTriggerState.isActive &&
+    const bool desiredLeftMouse = meleeHeld || (!driving && rightTriggerState.isActive &&
         rightTriggerState.currentState > 0.55f);
     if (desiredLeftMouse != leftMouseDown_)
     {
         SendMouseButton(false, desiredLeftMouse);
         leftMouseDown_ = desiredLeftMouse;
     }
-    const bool desiredRightMouse = leftTriggerState.isActive &&
+    const bool desiredRightMouse = !driving && leftTriggerState.isActive &&
         leftTriggerState.currentState > 0.55f;
     if (desiredRightMouse != rightMouseDown_)
     {

@@ -135,6 +135,9 @@ class DayZVRBridge
 		DayZVRSteering.s_VrValid = Vr("steer_valid") == "1";
 		DayZVRSteering.s_VrSteer = VrFloat("steer");
 		DayZVRSteering.s_VrTime = m_VrFrameTime;
+		DayZVRSteering.s_VrPedalsValid = Vr("pedals_valid") == "1";
+		DayZVRSteering.s_VrThrottle = VrFloat("throttle");
+		DayZVRSteering.s_VrBrake = VrFloat("brake");
 	}
 
 	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in

@@ -245,9 +245,13 @@ detour. Update the entry when you touch the track; keep history in git, not here
   sim: `invert` flips the sign and the car reports `steering=-0`, `vehicle.steering=0`
   drops `steer_valid` and the override; the static sim hands are level so the
   magnitude cannot be exercised headless.
-- Next: (1) throttle/brake on the triggers via `SetThrottle`/`SetBrake` the same way
-  (both script natives; the triggers currently press mouse buttons, so gate on
-  `in_vehicle`); (2) real-headset tuning of `wheel_max_degrees`/`deadzone`, and a
+- State (08:23): trigger pedals wired (right = throttle, left = brake): while
+  `in_vehicle` the host publishes `pedals_valid=1 throttle= brake=` instead of pressing
+  mouse buttons, the mod applies `SetThrottle`/`SetBrake` only while a pedal is pressed
+  (>0.02) so W/S keep working. Sim: `pedals_valid` flips 0→1 on entering the car,
+  values stay 0 (idle sim triggers), no errors; pressed values need real hands.
+- Next: (1) check `SetThrottle` actually beats the engine's own input like steering
+  did (real headset or a sim with scripted trigger values); (2) real-headset tuning of `wheel_max_degrees`/`deadzone`, and a
   "grab the wheel" gesture (both grips held) so resting hands do not steer; (3) hands
   visibly on the wheel (hand models) once the hand-model track exists.
 

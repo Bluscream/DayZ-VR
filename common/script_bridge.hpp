@@ -37,4 +37,6 @@ namespace dayz::script_bridge
     // Controller steering wheel value for vr.txt (steer_valid=, steer=), set by the
     // OpenXR host every frame; the Enforce side applies it while driving.
     void SetVehicleSteer(float steer, bool valid) noexcept;
+    // Trigger pedals for vr.txt (pedals_valid=, throttle=, brake=), 0..1 each.
+    void SetVehiclePedals(float throttle, float brake, bool valid) noexcept;
 }

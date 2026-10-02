@@ -30,6 +30,9 @@ namespace dayz::script_bridge
         std::uint64_t g_frame{};
         std::atomic<float> g_steer{};
         std::atomic<bool> g_steerValid{};
+        std::atomic<float> g_throttle{};
+        std::atomic<float> g_brake{};
+        std::atomic<bool> g_pedalsValid{};
         std::mutex g_stateMutex;
         GameState g_state;
         int g_lastLoggedAmmo{-2};
@@ -110,7 +113,7 @@ namespace dayz::script_bridge
                 "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
                 "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n"
                 "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n"
-                "steer_valid=%d\nsteer=%.4f\n",
+                "steer_valid=%d\nsteer=%.4f\npedals_valid=%d\nthrottle=%.3f\nbrake=%.3f\n",
                 static_cast<unsigned long long>(g_frame), hmd.valid ? 1 : 0,
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
@@ -119,7 +122,9 @@ namespace dayz::script_bridge
                 viewYawOffset, viewPitchOffset,
                 hud.valid ? hud.left : 0.0f, hud.valid ? hud.top : 0.0f,
                 hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f,
-                g_steerValid.load(std::memory_order_relaxed) ? 1 : 0, g_steer.load(std::memory_order_relaxed));
+                g_steerValid.load(std::memory_order_relaxed) ? 1 : 0, g_steer.load(std::memory_order_relaxed),
+                g_pedalsValid.load(std::memory_order_relaxed) ? 1 : 0, g_throttle.load(std::memory_order_relaxed),
+                g_brake.load(std::memory_order_relaxed));
             FILE* file{};
             if (_wfopen_s(&file, g_vrTempPath.c_str(), L"wb") != 0 || !file)
                 return;
@@ -225,6 +230,13 @@ namespace dayz::script_bridge
     {
         g_steer.store(valid ? steer : 0.0f, std::memory_order_relaxed);
         g_steerValid.store(valid, std::memory_order_relaxed);
+    }
+
+    void SetVehiclePedals(float throttle, float brake, bool valid) noexcept
+    {
+        g_throttle.store(valid ? throttle : 0.0f, std::memory_order_relaxed);
+        g_brake.store(valid ? brake : 0.0f, std::memory_order_relaxed);
+        g_pedalsValid.store(valid, std::memory_order_relaxed);
     }
 
     bool Enabled() noexcept
