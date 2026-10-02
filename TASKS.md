@@ -427,9 +427,36 @@ Findings, each with its fix state:
   clears actions while a menu is open); and the host now writes actions only on change and
   clears them on release, because rewriting the stick's zero each frame cancelled any other
   producer's value within a frame.
-- Next: headset: stick walk unfocused, `direct_aim=true`, fix the signs, compare with the
-  mouse loop. Then GUI actions (`UAUI*`) for menus without the mouse, vehicle `UACar*`
-  shifting, and removing the SendInput leftovers.
+- Headset (2026-10-02 18:10..18:30, WiVRn): hooks active, `action UAMoveForward 1` walks
+  15 m unfocused; the user reports the left stick walks in all directions, the right stick
+  was dead (stick turn only went through the engine with `direct_aim`; now it uses the aim
+  axis whenever the hooks are active, closed loop excepted). Closed-loop head aim produced
+  the "earthquake" again; switched the deployed ini to open loop (`hmd_aim_closed_loop=false`,
+  yaw -180 / pitch -135). Death screen: the proxy does not capture it, the quad is off, the
+  trigger only wrote `UAFire`, so "Continue" could not be clicked; fixed by reading the
+  engine's game-focus counter (`Input+0x183D4`, `MenuOwnsInput()`) and sending a real click
+  while a menu owns the input and the window is focused. Menus still need desktop focus.
+- Research: docs/research/vr-mod-techniques.md (UEVR, REFramework, R.E.A.L., F.E.A.R. VR,
+  uuvr, vorpX, geo-11, Depth3D). Conclusion for the jitter: apply the HMD where the renderer
+  builds the view matrix (post-correct), submit the pose actually rendered, feed the game
+  only flattened yaw. Tracked as R5 below.
+- Next: headset check of the right stick and open-loop view; `direct_aim=true` signs; then
+  GUI actions (`UAUI*`) for menus without the mouse, vehicle `UACar*` shifting, and removing
+  the SendInput leftovers.
+
+## R5. Stable stereo: HMD at the renderer's view matrix, not the gameplay camera
+- Why: every stable mod for a closed engine post-corrects the view where the renderer asks
+  for it and submits that exact pose (docs/research/vr-mod-techniques.md). DayZ-VR writes
+  the FrameBase rotation on the game thread, the render thread reads it a frame later, the
+  mouse aim re-rotates the same camera, and `xrEndFrame` submits a newer pose than rendered:
+  all four known jitter causes at once.
+- Plan: (1) Ghidra: the view/projection matrix build in the projection dispatch `0x952000`
+  (rendering.md) and the constant-buffer upload on the render thread; (2) hook it, call the
+  original, compose `eye * hmd` onto the output per eye (real eye separation included);
+  (3) per-frame `{frame id, predicted time, views}` record, submit those views; (4) game
+  gets flattened yaw only through the direct aim axis once per frame; (5) camera-freeze and
+  engine-rotation-lerp diagnostics. Keep the FrameBase path behind a flag until R5 is proven (builds on the R1 findings: scene preparation is the per-eye unit).
+- State: not started (2026-10-02 18:35).
 - Open: the axis-pair clamp constants (`DAT_140C8AB80/64`) may cap large per-frame head
   turns at high rates; the registry's own per-frame evaluation is still unlocated.
 

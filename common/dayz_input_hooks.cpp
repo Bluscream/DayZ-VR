@@ -36,6 +36,11 @@ namespace dayz::input_hooks
         constexpr std::uintptr_t kHoldBeginByRecordRva = 0x005F54D0;
         constexpr std::uintptr_t kAxisPairRva = 0x005F5E10;
         constexpr std::uintptr_t kRegistryGetterRva = 0x00534AE0;
+        // Input system object pointer (DAT_14100A360) and its game-focus counter: while
+        // the counter is above zero a menu, the inventory or the death screen owns the
+        // input and HasGameFocus (0x5F6900) is false for every gameplay action.
+        constexpr std::uintptr_t kInputObjectPointerRva = 0x0100A360;
+        constexpr std::ptrdiff_t kGameFocusCounterOffset = 0x183D4;
         constexpr std::uintptr_t kLookupByNameRva = 0x00534540;
         constexpr std::uintptr_t kPlayerInputUpdateRva = 0x004F5D40;
         // Record layout.
@@ -71,6 +76,7 @@ namespace dayz::input_hooks
 
         std::atomic_bool g_active{};
         std::atomic_bool g_directAim{};
+        std::uintptr_t g_moduleBase{};
         std::atomic_uint64_t g_frames{};
         std::atomic_uint64_t g_overrides{};
         std::atomic<float> g_lastDt{};
@@ -183,7 +189,9 @@ namespace dayz::input_hooks
                 const float yaw = g_pendingYaw.exchange(0.0f, std::memory_order_relaxed);
                 const float pitch = g_pendingPitch.exchange(0.0f, std::memory_order_relaxed);
                 const float seconds = g_lastDt.load(std::memory_order_relaxed);
-                if (g_directAim.load(std::memory_order_relaxed) && seconds > 0.0f)
+                // The aim delta is consumed whenever the hooks are active: stick turns
+                // always arrive this way, head aim only with [input] direct_aim.
+                if (seconds > 0.0f)
                 {
                     g_frameYawRate = yaw * g_aimYawSign / seconds;
                     g_framePitchRate = pitch * g_aimPitchSign / seconds;
@@ -193,7 +201,7 @@ namespace dayz::input_hooks
                     g_frameYawRate = 0.0f;
                     g_framePitchRate = 0.0f;
                 }
-                if (g_aimRightId < 0 && g_directAim.load(std::memory_order_relaxed))
+                if (g_aimRightId < 0)
                 {
                     g_aimRightId = ResolveAimId("UAAimRight");
                     g_aimLeftId = ResolveAimId("UAAimLeft");
@@ -290,8 +298,7 @@ namespace dayz::input_hooks
         float __fastcall HookedAxisPair(void* self, int mode, unsigned idA, unsigned idB, bool checkFocus)
         {
             const float engine = g_axisPair(self, mode, idA, idB, checkFocus);
-            if (!g_active.load(std::memory_order_relaxed) || !g_directAim.load(std::memory_order_relaxed) ||
-                !FocusAllows(self, checkFocus))
+            if (!g_active.load(std::memory_order_relaxed) || !FocusAllows(self, checkFocus))
                 return engine;
             const int a = static_cast<int>(idA);
             const int b = static_cast<int>(idB);
@@ -339,6 +346,7 @@ namespace dayz::input_hooks
         g_directAim.store(ReadBoolean(iniPath, L"direct_aim", false));
         g_aimYawSign = ReadFloat(iniPath, L"aim_yaw_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
         g_aimPitchSign = ReadFloat(iniPath, L"aim_pitch_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
+        g_moduleBase = moduleBase;
         g_registry = reinterpret_cast<RegistryGetterFn>(moduleBase + kRegistryGetterRva);
         g_lookupByName = reinterpret_cast<LookupByNameFn>(moduleBase + kLookupByNameRva);
         const bool ok =
@@ -369,6 +377,16 @@ namespace dayz::input_hooks
     bool Active() noexcept
     {
         return g_active.load(std::memory_order_relaxed);
+    }
+
+    bool MenuOwnsInput() noexcept
+    {
+        if (!g_active.load(std::memory_order_relaxed) || !g_moduleBase)
+            return false;
+        const auto* input = *reinterpret_cast<const char* const*>(g_moduleBase + kInputObjectPointerRva);
+        if (!input)
+            return false;
+        return *reinterpret_cast<const int*>(input + kGameFocusCounterOffset) > 0;
     }
 
     bool DirectAimEnabled() noexcept

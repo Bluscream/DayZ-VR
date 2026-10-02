@@ -1513,29 +1513,7 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     const bool moving = desired[0] || desired[1] || desired[2] || desired[3];
     const float inputSeconds = dayz::xr::AdvanceInputClock(lastTurnTime_, displayTime);
     dayz::comfort::Update(moving, turning && controllerSnapTurn_ <= 0.0f, inputSeconds);
-    if (dayz::input_hooks::DirectAimEnabled())
-    {
-        // Stick turn as an aim change through the engine's own axis getter: an exact
-        // angle per frame, no mouse counts. Positive yaw turns right.
-        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-        if (actions)
-        {
-            if (controllerSnapTurn_ > 0.0f)
-            {
-                if (turning && snapTurnArmed_)
-                {
-                    dayz::input_hooks::AddAimDelta(
-                        (rightStick.x > 0.0f ? 1.0f : -1.0f) * controllerSnapTurn_ * kDegToRad, 0.0f);
-                    snapTurnArmed_ = false;
-                }
-                else if (!turning)
-                    snapTurnArmed_ = true;
-            }
-            else if (turning)
-                dayz::input_hooks::AddAimDelta(rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds, 0.0f);
-        }
-    }
-    else if (dayz::runtime_probe::ClosedLoopAimActive())
+    if (dayz::runtime_probe::ClosedLoopAimActive())
     {
         // With the closed loop owning DayZ's mouse camera, stick turns rotate
         // the yaw target instead of injecting raw counts that the loop would
@@ -1554,6 +1532,30 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         }
         else if (turning)
             dayz::runtime_probe::AddAimYawOffset(-rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds);
+    }
+    else if (direct)
+    {
+        // Stick turn as an aim change through the engine's own axis getter: an exact
+        // angle per frame, no mouse counts, no desktop focus. Positive yaw turns
+        // right. Independent of direct head aim ([input] direct_aim), which only
+        // decides how the HMD rotation reaches the game.
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        if (actions)
+        {
+            if (controllerSnapTurn_ > 0.0f)
+            {
+                if (turning && snapTurnArmed_)
+                {
+                    dayz::input_hooks::AddAimDelta(
+                        (rightStick.x > 0.0f ? 1.0f : -1.0f) * controllerSnapTurn_ * kDegToRad, 0.0f);
+                    snapTurnArmed_ = false;
+                }
+                else if (!turning)
+                    snapTurnArmed_ = true;
+            }
+            else if (turning)
+                dayz::input_hooks::AddAimDelta(rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds, 0.0f);
+        }
     }
     else if (turning && keysAllowed)
         SendMouseTurn(static_cast<LONG>(std::lround(rightStick.x * controllerTurnScale_)));
@@ -1723,7 +1725,11 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         rightTriggerState.currentState > 0.55f);
     const bool desiredRightMouse = !driving && leftTriggerState.isActive &&
         leftTriggerState.currentState > 0.55f;
-    if (direct)
+    // A menu the proxy did not capture (the death screen, server browser) renders in the
+    // world and owns the engine's game focus; UAFire does nothing there, so the trigger
+    // falls back to a real click while the desktop foreground allows it.
+    const bool menuClick = keysAllowed && dayz::input_hooks::MenuOwnsInput();
+    if (direct && !menuClick)
     {
         // Fire and raise as engine actions (UAFire = attack, UATempRaiseWeapon = the
         // right mouse button's raise); any emulated mouse button still down goes up.

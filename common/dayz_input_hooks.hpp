@@ -23,6 +23,10 @@ namespace dayz::input_hooks
     bool Active() noexcept;
     // True when head/stick aiming goes through the axis-pair getter instead of mouse counts.
     bool DirectAimEnabled() noexcept;
+    // True while the engine's game-focus counter says a menu, the inventory or the death
+    // screen owns the input (HasGameFocus false): gameplay actions are ignored there and
+    // the GUI needs real mouse clicks.
+    bool MenuOwnsInput() noexcept;
 
     // Producer side (any thread). Values are latched once per game frame.
     void SetAction(std::string_view name, float value, bool held) noexcept;

@@ -20,6 +20,7 @@ so verify with the byte checks in `common/dayz_build_checks.hpp` or re-run the G
 | [rendering.md](rendering.md) | Frame structure, view prepare/execute/finalize, projection dispatch, camera (FrameBase), FOV, HUD scale, GUI capture, engine bugs the proxy works around |
 | [input.md](input.md) | Input system: raw input and XInput device layer, the action registry (`UAInput` records), HumanInputController action tables, focus gating, what can be written from outside |
 | [scripting.md](scripting.md) | Enforce Script facts that matter for native code: native binding tables, what the client can and cannot override without a server mod, file bridge |
+| [vr-mod-techniques.md](vr-mod-techniques.md) | How UEVR, REFramework, R.E.A.L., F.E.A.R. VR, uuvr, vorpX, geo-11 and Depth3D get stable stereo and head tracking in engines they do not own; jitter causes; the transfer plan for DayZ |
 | [tooling.md](tooling.md) | How these notes were produced: headless Ghidra project, `scripts/ghidra-decompile.sh` queries, string and import searches, pitfalls |
 
 Conventions: `+0x..` inside a struct is a byte offset from the object start; `FUN_1400xxxxx`
