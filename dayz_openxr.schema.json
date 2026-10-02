@@ -939,6 +939,46 @@
         }
       }
     },
+    "input": {
+      "title": "Direct input",
+      "description": "Engine action hooks that replace SendInput for gameplay input (docs/research/input.md, common/dayz_input_hooks.cpp).",
+      "keys": {
+        "direct_actions": {
+          "title": "Direct actions",
+          "description": "Hook DayZ's input action getters and feed the controller state as named actions (analogue movement, no desktop focus needed). Falls back to key emulation when off or on an unknown build.",
+          "type": "bool",
+          "default": "true",
+          "restart": true
+        },
+        "direct_aim": {
+          "title": "Direct aim",
+          "description": "Head and stick turning as exact per-frame aim changes through the engine's aim axis instead of mouse counts; replaces the closed loop while on.",
+          "type": "bool",
+          "default": "false",
+          "restart": true
+        },
+        "aim_yaw_sign": {
+          "title": "Aim yaw sign",
+          "description": "1 or -1: flips the direct-aim yaw direction.",
+          "type": "float",
+          "default": "1",
+          "min": -1.0,
+          "max": 1.0,
+          "step": 2.0,
+          "restart": true
+        },
+        "aim_pitch_sign": {
+          "title": "Aim pitch sign",
+          "description": "1 or -1: flips the direct-aim pitch direction.",
+          "type": "float",
+          "default": "1",
+          "min": -1.0,
+          "max": 1.0,
+          "step": 2.0,
+          "restart": true
+        }
+      }
+    },
     "bridge": {
       "title": "Script bridge",
       "description": "File exchange with the optional @DayZVR Enforce Script mod under <profile>/dayzvr/ (<profile> is %LOCALAPPDATA%\\DayZ unless DayZ runs with -profiles=).",

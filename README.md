@@ -36,25 +36,25 @@ The same section contains `inventory_hmd_look`, which keeps visual HMD look acti
 
 ## Controller mapping
 
-Controller buttons mirror their emulated keyboard or mouse state: the emulated input goes down when the controller input goes down and is released when the controller input is released. `LGRAB` acts as a modifier for the left face buttons.
+With `[input] direct_actions=true` (default) the proxy hooks DayZ's own input action getters and answers them with the controller state (docs/research/input.md): the game sees named actions with analogue values, the DayZ window does not need the desktop focus, and the keyboard keeps working next to the controllers. Menu keys and GUI clicks still go through emulated keys and need the focus. With the option off, or on an unknown DayZ build, every row falls back to the emulated key or mouse button. `LGRAB` acts as a modifier for the left face buttons.
 
-| Controller input | DayZ input |
-| --- | --- |
-| Left stick | `W`, `A`, `S`, `D` |
-| Right stick, horizontal | Mouse horizontal turn |
-| `X` | `C` |
-| `Y` | `R` |
-| `LGRAB + X` | `Esc` (menu) |
-| `LGRAB + Y` | `Tab` (inventory) |
-| `LGRAB + A` | Previous quickbar slot (`1` through `0`, cyclic) |
-| `LGRAB + B` | Next quickbar slot (`1` through `0`, cyclic) |
-| `RGRAB` | `F` |
-| `A` without `LGRAB` | `Shift` |
-| `B` without `LGRAB` | `Space` |
-| Left trigger | Right mouse button |
-| Right trigger | Left mouse button |
+| Controller input | Engine action (direct) | Emulated fallback |
+| --- | --- | --- |
+| Left stick | `UAMoveForward/Back/Left/Right`, analogue (walk below the run threshold) | `W`, `A`, `S`, `D` |
+| Right stick, horizontal | Aim axis turn (`[input] direct_aim`) or the aim loop | Mouse horizontal turn |
+| `X` | `UAStance` | `C` |
+| `Y` | `UAReloadMagazine` | `R` |
+| `LGRAB + X` | – | `Esc` (menu) |
+| `LGRAB + Y` | – | `Tab` (inventory) |
+| `LGRAB + A` | Previous quickbar slot (`UAItem0..9`, cyclic) | `1` through `0` |
+| `LGRAB + B` | Next quickbar slot (`UAItem0..9`, cyclic) | `1` through `0` |
+| `RGRAB` | `UADefaultAction` (not while driving) | `F` |
+| `A` without `LGRAB` | `UATurbo` | `Shift` |
+| `B` without `LGRAB` | `UAGetOver` | `Space` |
+| Left trigger | `UATempRaiseWeapon` | Right mouse button |
+| Right trigger | `UAFire` | Left mouse button |
 
-The quickbar cycle is maintained by the mod and emits the corresponding number key. Selecting a slot directly on the physical keyboard does not currently resynchronize the mod's cycle position.
+The quickbar cycle is maintained by the mod. Selecting a slot directly on the physical keyboard does not currently resynchronize the mod's cycle position.
 
 The solution also includes `xr_probe.exe`, a standalone OpenXR/D3D11 diagnostic application. It can verify the active OpenXR runtime and headset before the proxy is loaded into DayZ.
 
@@ -65,7 +65,7 @@ The solution also includes `xr_probe.exe`, a standalone OpenXR/D3D11 diagnostic 
 - UI element sizing is currently derived from the frame height. With a square render resolution, interface elements may therefore appear much larger than expected.
 - DayZ must run in windowed mode so the render resolution can be changed in `\Documents\DayZ\DayZ.cfg` while testing. Close the game before editing the file, then set the desired window dimensions there and restart DayZ.
 - The physical system cursor is intentionally locked while the custom GUI cursor is active.
-- Head-look and controller input are injected with `SendInput`, so the DayZ window must have the real desktop focus for them to work. `[hooks] keep_focus` only stops the engine from throttling to ~20 fps while unfocused; it does not route input.
+- Menu keys, GUI clicks and, unless `[input] direct_aim=true`, head-look are injected with `SendInput`, so the DayZ window must have the real desktop focus for those. Gameplay controller input goes through the engine action hooks and works without it. `[hooks] keep_focus` only stops the engine from throttling to ~20 fps while unfocused.
 - Do not combine this proxy with ReShade, Special K, or another local `dxgi.dll`; proxy chaining is not implemented.
 
 ## Requirements

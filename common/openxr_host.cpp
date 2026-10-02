@@ -12,6 +12,7 @@
 #include "debug_frame_source.hpp"
 #include "dayz_frame_source.hpp"
 #include "dayz_runtime_probe.hpp"
+#include "dayz_input_hooks.hpp"
 #include "stereo_state.hpp"
 #include "logging.hpp"
 
@@ -1107,6 +1108,7 @@ void OpenXrHost::AnchorGuiQuad(const XrPosef& headPose) noexcept
 void OpenXrHost::ReleaseControllerKeys() noexcept
 {
     ReleaseInjectedInput();
+    dayz::input_hooks::ClearAllActions();
     for (auto& location : gripLocations_)
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     for (auto& location : aimLocations_)
@@ -1425,13 +1427,22 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     // how this translation unit was compiled, not which host is using it.
     if (!gameSwapChain_)
         return;
+    // Direct input: with the engine action hooks active (dayz_input_hooks) gameplay
+    // input is written as named actions and does not need the desktop foreground;
+    // only the SendInput leftovers (menu keys, GUI clicks) still require it.
+    const bool direct = dayz::input_hooks::Active();
     if (!injectInput)
     {
         // Poses above stay live (ammo quad, rays, debug snapshot); nothing may reach
-        // the game while its window is not the desktop foreground.
+        // the game through SendInput while its window is not the desktop foreground.
         ReleaseInjectedInput();
-        return;
+        if (!direct)
+            return;
     }
+    const bool keysAllowed = injectInput;
+    if (direct && guiVisible)
+        dayz::input_hooks::ClearAllActions();
+    const bool actions = direct && !guiVisible;
     const auto vectorState = [&](std::size_t hand) {
         XrActionStateVector2f state(MakeXr<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F));
         XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
@@ -1445,18 +1456,60 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     const bool desired[4]{leftStick.y > controllerDeadzone_,
         leftStick.x < -controllerDeadzone_, leftStick.y < -controllerDeadzone_,
         leftStick.x > controllerDeadzone_};
-    constexpr WORD keys[4]{'W', 'A', 'S', 'D'};
-    for (std::size_t index = 0; index < movementKeys_.size(); ++index)
-        if (movementKeys_[index] != desired[index])
-        {
-            SendKey(keys[index], desired[index]);
-            movementKeys_[index] = desired[index];
-        }
+    if (actions)
+    {
+        // Analogue movement: the stick deflection beyond the deadzone becomes the
+        // action value (DayZ walks below its run threshold), one action per direction.
+        const auto axis = [&](float value) {
+            const float span = (std::max)(0.01f, 1.0f - controllerDeadzone_);
+            return (std::min)(1.0f, (std::max)(0.0f, std::fabs(value) - controllerDeadzone_) / span);
+        };
+        const float forward = desired[0] ? axis(leftStick.y) : 0.0f;
+        const float left = desired[1] ? axis(leftStick.x) : 0.0f;
+        const float back = desired[2] ? axis(leftStick.y) : 0.0f;
+        const float right = desired[3] ? axis(leftStick.x) : 0.0f;
+        dayz::input_hooks::SetAction("UAMoveForward", forward, desired[0]);
+        dayz::input_hooks::SetAction("UAMoveLeft", left, desired[1]);
+        dayz::input_hooks::SetAction("UAMoveBack", back, desired[2]);
+        dayz::input_hooks::SetAction("UAMoveRight", right, desired[3]);
+    }
+    else if (keysAllowed)
+    {
+        constexpr WORD keys[4]{'W', 'A', 'S', 'D'};
+        for (std::size_t index = 0; index < movementKeys_.size(); ++index)
+            if (movementKeys_[index] != desired[index])
+            {
+                SendKey(keys[index], desired[index]);
+                movementKeys_[index] = desired[index];
+            }
+    }
     const bool turning = std::fabs(rightStick.x) > controllerDeadzone_;
     const bool moving = desired[0] || desired[1] || desired[2] || desired[3];
     const float inputSeconds = dayz::xr::AdvanceInputClock(lastTurnTime_, displayTime);
     dayz::comfort::Update(moving, turning && controllerSnapTurn_ <= 0.0f, inputSeconds);
-    if (dayz::runtime_probe::ClosedLoopAimActive())
+    if (dayz::input_hooks::DirectAimEnabled())
+    {
+        // Stick turn as an aim change through the engine's own axis getter: an exact
+        // angle per frame, no mouse counts. Positive yaw turns right.
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        if (actions)
+        {
+            if (controllerSnapTurn_ > 0.0f)
+            {
+                if (turning && snapTurnArmed_)
+                {
+                    dayz::input_hooks::AddAimDelta(
+                        (rightStick.x > 0.0f ? 1.0f : -1.0f) * controllerSnapTurn_ * kDegToRad, 0.0f);
+                    snapTurnArmed_ = false;
+                }
+                else if (!turning)
+                    snapTurnArmed_ = true;
+            }
+            else if (turning)
+                dayz::input_hooks::AddAimDelta(rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds, 0.0f);
+        }
+    }
+    else if (dayz::runtime_probe::ClosedLoopAimActive())
     {
         // With the closed loop owning DayZ's mouse camera, stick turns rotate
         // the yaw target instead of injecting raw counts that the loop would
@@ -1476,7 +1529,7 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         else if (turning)
             dayz::runtime_probe::AddAimYawOffset(-rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds);
     }
-    else if (turning)
+    else if (turning && keysAllowed)
         SendMouseTurn(static_cast<LONG>(std::lround(rightStick.x * controllerTurnScale_)));
 
     const auto booleanState = [&](XrAction action, std::size_t hand) {
@@ -1547,32 +1600,57 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     const bool bDown = bState.isActive && bState.currentState;
     const auto updateKey = [&](WORD key, bool desired, bool& current,
         const char* downMessage, const char* upMessage) {
+        if (!keysAllowed)
+            desired = false;
         if (desired == current)
             return;
         SendKey(key, desired);
         logging::Info(desired ? downMessage : upMessage);
         current = desired;
     };
-    updateKey('C', xDown && !leftGrabDown, xKeyDown_,
+    // Gameplay buttons: the named engine action when the hooks are active (set every
+    // frame, the hooks latch it), the emulated key otherwise.
+    const auto updateAction = [&](const char* action, WORD key, bool desired, bool& current,
+        const char* downMessage, const char* upMessage) {
+        if (!direct)
+        {
+            updateKey(key, desired, current, downMessage, upMessage);
+            return;
+        }
+        if (current)
+        {
+            SendKey(key, false);
+            current = false;
+        }
+        if (actions)
+            dayz::input_hooks::SetAction(action, desired ? 1.0f : 0.0f, desired);
+    };
+    updateAction("UAStance", 'C', xDown && !leftGrabDown, xKeyDown_,
         "controller X -> C down", "controller X -> C up");
     updateKey(VK_ESCAPE, xDown && leftGrabDown, escapeKeyDown_,
         "controller LGRAB+X -> Escape down", "controller LGRAB+X -> Escape up");
-    updateKey('R', yDown && !leftGrabDown, yKeyDown_,
+    updateAction("UAReloadMagazine", 'R', yDown && !leftGrabDown, yKeyDown_,
         "controller Y -> R down", "controller Y -> R up");
     updateKey(VK_TAB, yDown && leftGrabDown, tabKeyDown_,
         "controller LGRAB+Y -> Tab down", "controller LGRAB+Y -> Tab up");
     // Not while driving: the two-hand wheel needs both grips held, and a held F is
     // "Get out" once the vehicle is set up (headset test: grip ejected the driver).
-    updateKey('F', rightGrabDown && !driving, rightGrabDown_,
+    updateAction("UADefaultAction", 'F', rightGrabDown && !driving, rightGrabDown_,
         "controller RGRAB -> F down", "controller RGRAB -> F up");
     // While driving, A (engine), LGRAB+A (headlights) and the right stick click (horn)
     // belong to the @DayZVR mod, which reads them from vr.txt; B stays the handbrake.
-    updateKey(VK_SHIFT, aDown && !leftGrabDown && !driving, aButtonDown_,
+    updateAction("UATurbo", VK_SHIFT, aDown && !leftGrabDown && !driving, aButtonDown_,
         "controller A -> Shift down", "controller A -> Shift up");
-    updateKey(VK_SPACE, bDown && !leftGrabDown, bButtonDown_,
+    updateAction("UAGetOver", VK_SPACE, bDown && !leftGrabDown, bButtonDown_,
         "controller B -> Space down", "controller B -> Space up");
     const auto hotbarVirtualKey = [](unsigned slot) -> WORD {
         return slot == 10 ? '0' : static_cast<WORD>('0' + slot);
+    };
+    // Quickbar slots 1..10 are the engine actions UAItem0..UAItem9.
+    const auto hotbarAction = [](unsigned slot) -> const char* {
+        static constexpr const char* kNames[10]{"UAItem0", "UAItem1", "UAItem2", "UAItem3",
+            "UAItem4", "UAItem5", "UAItem6", "UAItem7", "UAItem8", "UAItem9"};
+        return kNames[(slot + 9) % 10];
     };
     const auto updateHotbar = [&](bool desired, bool& current, WORD& activeKey,
         int direction, const char* name) {
@@ -1585,23 +1663,30 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
             else
                 hotbarSlot_ = hotbarSlot_ == 10 ? 1 : hotbarSlot_ + 1;
             activeKey = hotbarVirtualKey(hotbarSlot_);
-            SendKey(activeKey, true);
+            if (direct)
+                dayz::input_hooks::SetAction(hotbarAction(hotbarSlot_), 1.0f, true);
+            else
+                SendKey(activeKey, true);
             std::ostringstream message;
             message << name << " -> hotbar slot " << hotbarSlot_ << " down";
             logging::Info(message.str());
         }
         else
         {
-            SendKey(activeKey, false);
+            if (direct)
+                dayz::input_hooks::ClearAction(hotbarAction(hotbarSlot_));
+            else
+                SendKey(activeKey, false);
             std::ostringstream message;
             message << name << " -> hotbar slot " << hotbarSlot_ << " up";
             logging::Info(message.str());
         }
         current = desired;
     };
-    updateHotbar(leftGrabDown && aDown && !driving, hotbarPreviousDown_, hotbarPreviousKey_, -1,
+    const bool hotbarAllowed = direct ? actions : keysAllowed;
+    updateHotbar(hotbarAllowed && leftGrabDown && aDown && !driving, hotbarPreviousDown_, hotbarPreviousKey_, -1,
         "controller LGRAB+A");
-    updateHotbar(leftGrabDown && bDown && !driving, hotbarNextDown_, hotbarNextKey_, 1,
+    updateHotbar(hotbarAllowed && leftGrabDown && bDown && !driving, hotbarNextDown_, hotbarNextKey_, 1,
         "controller LGRAB+B");
 
     const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);
@@ -1610,17 +1695,40 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     UpdateFireHaptics();
     const bool desiredLeftMouse = meleeHeld || (!driving && rightTriggerState.isActive &&
         rightTriggerState.currentState > 0.55f);
-    if (desiredLeftMouse != leftMouseDown_)
-    {
-        SendMouseButton(false, desiredLeftMouse);
-        leftMouseDown_ = desiredLeftMouse;
-    }
     const bool desiredRightMouse = !driving && leftTriggerState.isActive &&
         leftTriggerState.currentState > 0.55f;
-    if (desiredRightMouse != rightMouseDown_)
+    if (direct)
     {
-        SendMouseButton(true, desiredRightMouse);
-        rightMouseDown_ = desiredRightMouse;
+        // Fire and raise as engine actions (UAFire = attack, UATempRaiseWeapon = the
+        // right mouse button's raise); any emulated mouse button still down goes up.
+        if (leftMouseDown_)
+        {
+            SendMouseButton(false, false);
+            leftMouseDown_ = false;
+        }
+        if (rightMouseDown_)
+        {
+            SendMouseButton(true, false);
+            rightMouseDown_ = false;
+        }
+        if (actions)
+        {
+            dayz::input_hooks::SetAction("UAFire", desiredLeftMouse ? 1.0f : 0.0f, desiredLeftMouse);
+            dayz::input_hooks::SetAction("UATempRaiseWeapon", desiredRightMouse ? 1.0f : 0.0f, desiredRightMouse);
+        }
+    }
+    else if (keysAllowed)
+    {
+        if (desiredLeftMouse != leftMouseDown_)
+        {
+            SendMouseButton(false, desiredLeftMouse);
+            leftMouseDown_ = desiredLeftMouse;
+        }
+        if (desiredRightMouse != rightMouseDown_)
+        {
+            SendMouseButton(true, desiredRightMouse);
+            rightMouseDown_ = desiredRightMouse;
+        }
     }
 
     bool cursorHit{};

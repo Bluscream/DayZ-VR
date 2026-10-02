@@ -2536,6 +2536,21 @@ float4 PSMain(VertexOutput input) : SV_Target
         g_previousHmdYaw = yaw;
         g_previousHmdPitch = pitch;
 
+        if (dayz::input_hooks::DirectAimEnabled())
+        {
+            // Head aim through the engine's aim axis ([input] direct_aim): the HMD
+            // delta of this frame is handed to the action hooks, which turn it into
+            // the exact per-frame aim change. No mouse counts, no closed loop, no
+            // foreground requirement; menus still suspend it.
+            dayz::aim_loop::Suspend(g_aimLoop, g_pendingMouseX, g_pendingMouseY);
+            g_controllerAimActive = false;
+            g_aimYawError = 0.0f;
+            g_aimPitchError = 0.0f;
+            if (g_gameWindow && !RawGuiCursorModeActive())
+                dayz::input_hooks::AddAimDelta(YawLocked() ? 0.0f : yawDelta,
+                    PitchLocked() ? 0.0f : pitchDelta);
+            return;
+        }
         // Use the raw cursor state: debounce is useful for the quad, but the
         // first inventory frame already stops DayZ consuming gameplay input.
         if (!g_gameWindow || RealForegroundWindowImpl() != g_gameWindow ||
