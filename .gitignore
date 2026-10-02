@@ -47,3 +47,6 @@ __pycache__/
 
 # Offline reference material (symlink to the shared ArmA VR references, multi-GB)
 .references
+
+# Rust build output of the config editor (tools/config-editor)
+tools/config-editor/target/
