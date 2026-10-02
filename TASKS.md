@@ -212,3 +212,34 @@ detour. Update the entry when you touch the track; keep history in git, not here
   127.0.0.1 -port=2302 -mod=@DayZVR` → `dayz-status.sh --wait 300`.
 - Next: a `calibrate` subcommand in dayz-vr-ctl.py that runs the yaw-ratio measurement
   (currently a scratch script); automated regression run (launch, join, measure, stop).
+
+
+
+additional prompts by user (might be implemented):
+
+nothing else we can improve? especially in regards to rendering, if thats really true, look into how we can have the mod load and run sqf files or lua files (there might be examples, i know uevr has some kind of sdk for lua, but i thini for dayz sqf would make more sense, giving access to vr related stuff directly in the sqf, also look into how we can maybe imrprove ui and motion controks even more (everything optionally like ammo counter next to gun mag or making the hud/menus more immersive
+split all the work we discussed so far into tasks that never get marked as complete so you can always get back to something later after working on something else and dont forget regular commits
+mayge features like the floating ammo count could be enfirce scripts then if we give that bridge the necessary capabilities
+Continue until you have absolutely nothing more to do and cant even come up with anything yourself that can improve the project in anyway, in which case close yourself
+make sure our build script or maybe carve out to a seperate launch script that does wait some time for the process then gives info about the process and tails last logs lines and maybe existence of crash files, etc and also reports mod size/time and game size/time/version and other useful info so you dont have to go hunting every time? also read afk skill again
+make everything non-optional so agents dont try to bypass anything and miss crucial info
+make either the build or the start script (you chose where its more useful) cleanup all past crashdumps, logs, etc, etc so we dont grow infinite log files etc
+also when you really got some spare time, figure out why our emulator only has 20fps (might require online research), maybe add to tasks you written earlier
+you built in stuff that helps you control the game+server right? because you will need to spawn weapons in your hand, look at them with screenshots, etc, to see weapon model/hand model rotations, also i want motion controlled melee combat (fists, knifes, hammers, etc, etc), maybe spawn yourself a vehicle and teleport in to add and test features like controller position based steering wheel control etc also write this all down to the tasks file
+if theres any documentiation on enforce script and dayz sa modding in general, save/scrape it to .references/ so we have easy offline lookup
+if vppadmintools was running on the server, would that mean we can use our mods internal access to use it to spawn things/heal/etc from our client while developing without the need for ui interaction?
+why are my hands spazzing out so much when the game has focus, is that a side effect of mouse control or emulation? or a rea lbug
+add to tasks list: either find a way to reuse existing ui for our vr mod options, or add something similar to imgui (popular option but i dont think very vr friendly; uevr has a vr friendly overlay for its settings) where all mod settings can be edited directly ingame (try to make as many settings possible to change at runtime)
+
+last agent response:
+Deployed. Adding the in-game settings UI track to TASKS.md and relaunching in the same step.
+
+Camera steady at 0.1° error: the judder is gone with a static headset. Now raising the weapon through the client hook and refreshing the magazine to check the label placement.
+
+Rebuilt. Deploying both mods, then the server needs a restart for its half and the game a relaunch.
+
+Rebuilt. Killing the dialog-blocked game and deploying, then relaunching.
+
+Committed. Now checking the launch and the label position numbers from the bridge.
+
+In-world. Raising the weapon and capturing the label.
