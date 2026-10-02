@@ -1109,6 +1109,7 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
 {
     ReleaseInjectedInput();
     dayz::input_hooks::ClearAllActions();
+    directActions_ = {};
     for (auto& location : gripLocations_)
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     for (auto& location : aimLocations_)
@@ -1374,6 +1375,28 @@ void OpenXrHost::ReleaseInjectedInput() noexcept
     }
 }
 
+void OpenXrHost::WriteDirectAction(std::size_t slot, const char* name, float value, bool held)
+{
+    // Only changes reach the table: a value another producer set (the debug plugin's
+    // "action" command, a future gesture) survives until the controller moves, and a
+    // released action is cleared so the engine sees exactly one release edge.
+    DirectActionState& state = directActions_[slot];
+    const bool active = held || value > 0.0f;
+    if (!active)
+    {
+        if (state.written)
+            dayz::input_hooks::ClearAction(name);
+        state = {};
+        return;
+    }
+    if (state.written && state.value == value && state.held == held)
+        return;
+    dayz::input_hooks::SetAction(name, value, held);
+    state.value = value;
+    state.held = held;
+    state.written = true;
+}
+
 void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool injectInput)
 {
     if (!controllerInputEnabled_ || actionSet_ == XR_NULL_HANDLE)
@@ -1441,7 +1464,10 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     }
     const bool keysAllowed = injectInput;
     if (direct && guiVisible)
+    {
         dayz::input_hooks::ClearAllActions();
+        directActions_ = {};
+    }
     const bool actions = direct && !guiVisible;
     const auto vectorState = [&](std::size_t hand) {
         XrActionStateVector2f state(MakeXr<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F));
@@ -1468,10 +1494,10 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         const float left = desired[1] ? axis(leftStick.x) : 0.0f;
         const float back = desired[2] ? axis(leftStick.y) : 0.0f;
         const float right = desired[3] ? axis(leftStick.x) : 0.0f;
-        dayz::input_hooks::SetAction("UAMoveForward", forward, desired[0]);
-        dayz::input_hooks::SetAction("UAMoveLeft", left, desired[1]);
-        dayz::input_hooks::SetAction("UAMoveBack", back, desired[2]);
-        dayz::input_hooks::SetAction("UAMoveRight", right, desired[3]);
+        WriteDirectAction(0, "UAMoveForward", forward, desired[0]);
+        WriteDirectAction(1, "UAMoveLeft", left, desired[1]);
+        WriteDirectAction(2, "UAMoveBack", back, desired[2]);
+        WriteDirectAction(3, "UAMoveRight", right, desired[3]);
     }
     else if (keysAllowed)
     {
@@ -1713,8 +1739,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         }
         if (actions)
         {
-            dayz::input_hooks::SetAction("UAFire", desiredLeftMouse ? 1.0f : 0.0f, desiredLeftMouse);
-            dayz::input_hooks::SetAction("UATempRaiseWeapon", desiredRightMouse ? 1.0f : 0.0f, desiredRightMouse);
+            WriteDirectAction(4, "UAFire", desiredLeftMouse ? 1.0f : 0.0f, desiredLeftMouse);
+            WriteDirectAction(5, "UATempRaiseWeapon", desiredRightMouse ? 1.0f : 0.0f, desiredRightMouse);
         }
     }
     else if (keysAllowed)

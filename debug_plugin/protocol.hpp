@@ -226,6 +226,12 @@ namespace dayz::debug_protocol
         AppendField(out, "aim_pitch_gain", state.aim_pitch_gain);
         AppendHand(out, "left_hand", state.hands[0]);
         AppendHand(out, "right_hand", state.hands[1]);
+        AppendBool(out, "direct_input_active", state.direct_input_active != 0);
+        AppendField(out, "direct_input_resolved", state.direct_input_resolved);
+        AppendField(out, "direct_input_unresolved", state.direct_input_unresolved);
+        AppendField(out, "direct_input_frames", state.direct_input_frames);
+        AppendField(out, "direct_input_overrides", state.direct_input_overrides);
+        AppendField(out, "direct_input_frame_seconds", state.direct_input_frame_seconds);
         out.back() = '}';
         return out;
     }

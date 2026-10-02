@@ -253,6 +253,12 @@ private:
     XrTime lastTurnTime_{};
     float controllerDeadzone_{0.3f};
     std::array<bool, 4> movementKeys_{};
+    // Last value written to each continuously sampled engine action (4 movement
+    // directions, fire, raise), so the table is only touched on change and a
+    // released action is cleared instead of being rewritten as 0 every frame.
+    struct DirectActionState { float value{}; bool held{}; bool written{}; };
+    std::array<DirectActionState, 6> directActions_{};
+    void WriteDirectAction(std::size_t slot, const char* name, float value, bool held);
     bool leftMouseDown_{};
     bool rightMouseDown_{};
     bool xKeyDown_{};

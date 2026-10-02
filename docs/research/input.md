@@ -4,7 +4,7 @@ description: >-
   DayZ 1.29.163709 input system: raw input and XInput device layer, the UAInput action registry and record layout, HumanInputController action tables, and which paths let external code drive the game without SendInput.
 game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
 created: 2026-10-02T17:11+0200
-last_edited: 2026-10-02T17:24+0200
+last_edited: 2026-10-02T18:05+0200
 ---
 
 # Input system (DayZ 1.29.163709)
@@ -137,7 +137,11 @@ Gameplay never touches records directly. It calls the **Input interface**, the s
 an action **id** (Enforce, `LocalValue_ID`) or a **record pointer** (engine code, through an
 `InputAccess`). Every getter first runs the focus check `0x5F5140(Input, checkFocus, id)`
 (`HasGameFocus`) and returns 0 when a menu owns the input, then reads the record's active
-state block: value = `block+0x10 + block+0x0C`, flags from `block+0x04`.
+state block: value = `block+0x10 + block+0x0C`, flags from `block+0x04`. `HasGameFocus` is
+the engine's *game focus* (menu/inventory owns the input), not the desktop window focus:
+with the window unfocused the consumers still run every frame and the getters still return
+what the records hold; only the raw input stops arriving. (Verified: with hooked getters a
+held `UAMoveForward` walked the player 23 m in 6 s while another window had focus.)
 
 | Slot | RVA (by id) | RVA (by record) | Returns |
 | --- | --- | --- | --- |
@@ -159,7 +163,9 @@ first (the default record never reports anything). Records found by name expose 
 script-facing `HumanInputController::vftable` `0xC90C90` is the abstract interface) is the
 consumer for the on-foot player:
 - Slot 6, `0x4F5D40(self, player, dt)`: the per-frame update. It fetches the interface with
-  `0x7031A0(0x100EBD0 global, player+0x6DC)` (returns `Input+0x28` for the local player) and
+  `0x7031A0(0x100EBD0 global, player+0x6DC)` (returns `Input+0x28` for the local player;
+  for other input kinds it returns a replay source `world+0x48` via `0x73E450` or the remote
+  player's interface at `(world+0x50)+0x3C0+8`) and
   the on-foot access table `0x10084D0` (built by `0x535AC0`, 63 entries of 0x20, record pointer
   at `entry+0x18`). Movement: `right - left` and `forward - back` from `UAMoveRight/Left/
   Forward/Back` values (so analogue values give analogue speed; the walk/run decision uses the
@@ -182,8 +188,15 @@ update (build-checked in `common/dayz_build_checks.hpp`, `kInputBuildChecks`):
   computed once per frame) and converts the accumulated HMD/stick aim delta into this frame's
   rate (`delta / dt`).
 - Each getter calls the engine first and combines: values take the maximum, flags are OR-ed,
-  the axis pair adds the VR rate. Keyboard and mouse keep working; the focus check is honoured
-  so menus never receive gameplay actions.
+  the axis pair adds the VR rate. Keyboard and mouse keep working. The overrides ignore the
+  engine's `checkFocus` (it is the menu gate, see above); the host clears every action while a
+  menu or the inventory is open instead.
+- The host only writes an action when its value changes and clears it on release, so another
+  producer (the debug plugin's `action <name> <value>` command, future gestures) can hold an
+  action; rewriting the stick's zero every frame used to cancel such values within one frame.
+- Verified in the Monado simulator (2026-10-02): all 11 names resolve on the first game frame
+  in-world, the on-foot consumer calls the hooked value getter ten times per frame, and a held
+  `UAMoveForward` walks the player with the DayZ window unfocused.
 - Nothing is written into engine memory; `[input] direct_actions=false` or an unknown build
   leaves the hooks off and the host falls back to `SendInput`.
 
@@ -203,7 +216,7 @@ update (build-checked in `common/dayz_build_checks.hpp`, `kInputBuildChecks`):
 | Path | Server mod needed | Focus independent | Analog | Status |
 | --- | --- | --- | --- | --- |
 | `SendInput` keys/mouse (current proxy) | no | **no** | no | verified, the problem |
-| Hook the Input interface getters and combine the VR state with the engine's reading | no | yes | yes | **implemented** (`dayz_input_hooks.cpp`), headset verification pending |
+| Hook the Input interface getters and combine the VR state with the engine's reading | no | yes | yes | **implemented and verified unfocused** (`dayz_input_hooks.cpp`, simulator); headset verification pending |
 | Write record values `+0x3C/+0x40` and flags `+0x34` before gameplay reads them | no | yes | yes | possible alternative; not needed |
 | Call the raw handlers `0x351610/0x351740` with synthetic `RAWINPUT` | no | yes | mouse only | decompiled, untested |
 | Hook `XInputGetState` (ordinal 2 through `0xC02EF0`) and return a virtual pad | no | yes (polled) | yes | fallback; flips UI to controller mode |

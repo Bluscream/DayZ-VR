@@ -55,6 +55,8 @@ namespace
         state.struct_size = sizeof(state);
         state.api_version = DAYZ_VR_DEBUG_API_VERSION;
         state.hooks_active = 1;
+        state.direct_input_active = 1;
+        state.direct_input_overrides = 42;
         state.session_state = 5;
         state.host_fps = 71.5;
         state.hmd_yaw = -3.0975f;
@@ -65,6 +67,8 @@ namespace
         const std::string json = FormatState(state);
         Expect(json.front() == '{' && json.back() == '}', "object braces");
         Expect(json.find("\"hooks_active\":true") != std::string::npos, "bool true");
+        Expect(json.find("\"direct_input_active\":true") != std::string::npos, "direct input flag");
+        Expect(json.find("\"direct_input_overrides\":42") != std::string::npos, "direct input counter");
         Expect(json.find("\"openxr_initialized\":false") != std::string::npos, "bool false");
         Expect(json.find("\"session_state\":5") != std::string::npos, "integer");
         Expect(json.find("\"host_fps\":71.5") != std::string::npos, "double");

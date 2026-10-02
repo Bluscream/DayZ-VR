@@ -74,6 +74,14 @@ typedef struct DayzVrDebugState
     float aim_pitch_gain;
 
     DayzVrDebugHand hands[2];     /* 0 left, 1 right */
+
+    /* Direct action input (engine getter hooks, dayz_input_hooks.cpp) */
+    uint32_t direct_input_active;
+    uint32_t direct_input_resolved;   /* actions bound to an engine record */
+    uint32_t direct_input_unresolved; /* names the registry does not know */
+    uint64_t direct_input_frames;     /* player input controller updates seen */
+    uint64_t direct_input_overrides;  /* getter calls answered with a VR value */
+    float direct_input_frame_seconds; /* dt of the last game frame */
 } DayzVrDebugState;
 
 typedef struct DayzVrDebugHost

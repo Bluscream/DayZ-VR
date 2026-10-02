@@ -35,7 +35,6 @@ namespace dayz::input_hooks
         constexpr std::uintptr_t kHoldBeginByIdRva = 0x005F5460;
         constexpr std::uintptr_t kHoldBeginByRecordRva = 0x005F54D0;
         constexpr std::uintptr_t kAxisPairRva = 0x005F5E10;
-        constexpr std::uintptr_t kHasFocusRva = 0x005F5140;
         constexpr std::uintptr_t kRegistryGetterRva = 0x00534AE0;
         constexpr std::uintptr_t kLookupByNameRva = 0x00534540;
         constexpr std::uintptr_t kPlayerInputUpdateRva = 0x004F5D40;
@@ -44,7 +43,6 @@ namespace dayz::input_hooks
         constexpr std::ptrdiff_t kRecordIdOffset = 0x7C;      // index into registry+0x98
         constexpr std::ptrdiff_t kRegistryRecordsOffset = 0x98;
         constexpr std::ptrdiff_t kRegistryRecordCountOffset = 0xA4;
-        constexpr std::ptrdiff_t kInterfaceToInputOffset = -0x28;
         constexpr int kMissingRecordIndex = -0xFFFF;
 
         using ValueByIdFn = float(__fastcall*)(void* self, unsigned id, bool checkFocus);
@@ -52,7 +50,6 @@ namespace dayz::input_hooks
         using FlagByIdFn = std::uint64_t(__fastcall*)(void* self, unsigned id, bool checkFocus);
         using FlagByRecordFn = std::uint64_t(__fastcall*)(void* self, void* record, bool checkFocus);
         using AxisPairFn = float(__fastcall*)(void* self, int mode, unsigned idA, unsigned idB, bool checkFocus);
-        using HasFocusFn = std::uint64_t(__fastcall*)(void* input, bool check, unsigned id);
         using RegistryGetterFn = void*(__fastcall*)();
         using LookupByNameFn = void*(__fastcall*)(void* registry, const char* name);
         using PlayerInputUpdateFn = void(__fastcall*)(void* self, void* player, float dt);
@@ -69,7 +66,6 @@ namespace dayz::input_hooks
         FlagByRecordFn g_holdBeginByRecord{};
         AxisPairFn g_axisPair{};
         PlayerInputUpdateFn g_playerInputUpdate{};
-        HasFocusFn g_hasFocus{};
         RegistryGetterFn g_registry{};
         LookupByNameFn g_lookupByName{};
 
@@ -119,12 +115,13 @@ namespace dayz::input_hooks
             return current + delta;
         }
 
-        bool FocusAllows(void* self, bool checkFocus) noexcept
+        // The engine's checkFocus flag exists so keyboard state is ignored while another
+        // window owns the keyboard. VR controller input is deliberate regardless of which
+        // desktop window is in front, so overrides never consult the focus check; the GUI
+        // case is handled by the host (actions are cleared while a menu is open).
+        bool FocusAllows(void*, bool) noexcept
         {
-            if (!checkFocus || !g_hasFocus)
-                return true;
-            void* input = static_cast<char*>(self) + kInterfaceToInputOffset;
-            return (g_hasFocus(input, true, 0xFFFFFFFFu) & 0xFF) != 0;
+            return true;
         }
 
         // Resolves every pending action name to its registry record and id. Runs on the
@@ -342,7 +339,6 @@ namespace dayz::input_hooks
         g_directAim.store(ReadBoolean(iniPath, L"direct_aim", false));
         g_aimYawSign = ReadFloat(iniPath, L"aim_yaw_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
         g_aimPitchSign = ReadFloat(iniPath, L"aim_pitch_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
-        g_hasFocus = reinterpret_cast<HasFocusFn>(moduleBase + kHasFocusRva);
         g_registry = reinterpret_cast<RegistryGetterFn>(moduleBase + kRegistryGetterRva);
         g_lookupByName = reinterpret_cast<LookupByNameFn>(moduleBase + kLookupByNameRva);
         const bool ok =

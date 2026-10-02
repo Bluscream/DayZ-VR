@@ -419,9 +419,15 @@ Findings, each with its fix state:
   gameplay input. `[input] direct_actions` (default on), `direct_aim` (default off: head and
   stick yaw/pitch as exact per-frame angles via the axis pair, replacing the closed loop) with
   `aim_yaw_sign`/`aim_pitch_sign`. No server mod involved. Verified: host test; the DLL build.
-- Next: sim run (`regression-run.sh`) to confirm the hooks install (`Direct input active` in
-  the log, `Direct input: UAMoveForward -> record` lines) and that the stick walks the player
-  with the window unfocused; then headset: `direct_aim=true`, fix the signs, compare with the
+- Verified in the sim (2026-10-02 18:00): `Direct input active`, all 11 names resolved on the
+  first in-world frame, consumer answered ten times per frame (`direct_input_*` counters in the
+  debug `get`), and `dayz-vr-ctl.py action UAMoveForward 1` walked the player 23 m in 6 s with
+  the DayZ window unfocused, stopping on release. Two fixes on the way: the engine's
+  `checkFocus` is the menu gate, not window focus, so overrides no longer consult it (the host
+  clears actions while a menu is open); and the host now writes actions only on change and
+  clears them on release, because rewriting the stick's zero each frame cancelled any other
+  producer's value within a frame.
+- Next: headset: stick walk unfocused, `direct_aim=true`, fix the signs, compare with the
   mouse loop. Then GUI actions (`UAUI*`) for menus without the mouse, vehicle `UACar*`
   shifting, and removing the SendInput leftovers.
 - Open: the axis-pair clamp constants (`DAT_140C8AB80/64`) may cap large per-frame head

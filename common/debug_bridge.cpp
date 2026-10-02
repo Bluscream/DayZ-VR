@@ -89,6 +89,14 @@ namespace
         state.aim_pitch_gain = probe.aimPitchGain;
         state.rendered_eye = dayz::stereo_state::RenderedEye();
 
+        const auto input = dayz::input_hooks::GetStats();
+        state.direct_input_active = dayz::input_hooks::Active() ? 1u : 0u;
+        state.direct_input_resolved = input.resolved;
+        state.direct_input_unresolved = input.unresolved;
+        state.direct_input_frames = input.frames;
+        state.direct_input_overrides = input.overrides;
+        state.direct_input_frame_seconds = input.lastFrameSeconds;
+
         const auto host = OpenXrHost::Instance().GetDebugSnapshot();
         state.openxr_initialized = host.initialized;
         state.session_running = host.sessionRunning;
