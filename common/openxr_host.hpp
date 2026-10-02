@@ -3,6 +3,7 @@
 #include "dayz_runtime_probe.hpp"
 #include "frame_source.hpp"
 #include "melee_swing.hpp"
+#include "vehicle_steering.hpp"
 #include "xr_structure.hpp"
 #include "xr_swapchain_image.hpp"
 
@@ -112,6 +113,7 @@ private:
     void SyncControllerInput(XrTime displayTime, bool guiVisible, bool injectInput);
     void ReleaseInjectedInput() noexcept;  // held keys/mouse buttons only; poses stay
     bool UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept;
+    void PublishVehicleSteering() noexcept;
     void ReleaseControllerKeys() noexcept; // ReleaseInjectedInput + forget controller poses
     void PollEvents();
     void RenderFrame();
@@ -192,7 +194,12 @@ private:
     std::atomic<float> meleeHeavyHoldSeconds_{0.45f};
     dayz::melee::SwingDetector meleeSwing_;
     XrTime meleeReleaseTime_{};  // attack key held until this display time (0 = not held)
-    std::array<dayz::runtime_probe::ExternalTunable, 11> hostTunables_{};
+    // Two-hand steering wheel ([vehicle]), published to the script bridge.
+    std::atomic<float> vehicleSteering_{1.0f};
+    std::atomic<float> vehicleWheelMaxDegrees_{90.0f};
+    std::atomic<float> vehicleDeadzone_{0.05f};
+    std::atomic<float> vehicleInvert_{0.0f};
+    std::array<dayz::runtime_probe::ExternalTunable, 15> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

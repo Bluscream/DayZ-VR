@@ -3,17 +3,36 @@
 // frame survives the engine's own driver input, which decides whether VR steering
 // (controller "wheel") can be done in script or needs a native patch.
 //
-// DayZVRSteering.s_Override: -2 = off, otherwise the wanted steering in <-1, 1>.
-// Set from the bridge's client command "steer <value>|off"; the host may later feed
-// it from vr.txt. game.txt reports "steering=" (GetSteering) and "speed=" (km/h).
+// Steering sources, in priority: the test override (client command "steer <v>|off",
+// -2 = off) and the native two-hand wheel from vr.txt (steer_valid=1, steer=, fresh
+// within a second). game.txt reports "steering=" (GetSteering) and "speed=" (km/h).
 class DayZVRSteering
 {
 	static float s_Override = -2;
 	static float s_Applied = 0;
+	// Filled by DayZVRBridge (5_Mission module, which this World module cannot see)
+	// from vr.txt: steer_valid, steer and the game time of the last fresh frame.
+	static bool s_VrValid = false;
+	static float s_VrSteer = 0;
+	static float s_VrTime = -100000;
 
 	static bool Active()
 	{
 		return s_Override >= -1 && s_Override <= 1;
+	}
+
+	// Returns true and the wanted steering when any source is live.
+	static bool Wanted(out float steering)
+	{
+		if (Active())
+		{
+			steering = s_Override;
+			return true;
+		}
+		if (!s_VrValid || GetGame().GetTime() - s_VrTime > 1000)
+			return false;
+		steering = Math.Clamp(s_VrSteer, -1, 1);
+		return true;
 	}
 }
 
@@ -44,12 +63,13 @@ modded class CarScript
 	override void OnUpdate(float dt)
 	{
 		super.OnUpdate(dt);
-		if (!DayZVRSteering.Active())
+		float wanted;
+		if (!DayZVRSteering.Wanted(wanted))
 			return;
 		Human driver = CrewDriver();
 		if (!driver || driver != GetGame().GetPlayer())
 			return;
-		SetSteering(DayZVRSteering.s_Override);
+		SetSteering(wanted);
 		DayZVRSteering.s_Applied = GetSteering();
 	}
 }

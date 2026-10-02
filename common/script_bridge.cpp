@@ -28,6 +28,8 @@ namespace dayz::script_bridge
         std::wstring g_vrTempPath;
         std::wstring g_gamePath;
         std::uint64_t g_frame{};
+        std::atomic<float> g_steer{};
+        std::atomic<bool> g_steerValid{};
         std::mutex g_stateMutex;
         GameState g_state;
         int g_lastLoggedAmmo{-2};
@@ -107,7 +109,8 @@ namespace dayz::script_bridge
                 "hmd_x=%.4f\nhmd_y=%.4f\nhmd_z=%.4f\naim_valid=%d\naim_yaw=%.5f\naim_pitch=%.5f\n"
                 "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
                 "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n"
-                "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n",
+                "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n"
+                "steer_valid=%d\nsteer=%.4f\n",
                 static_cast<unsigned long long>(g_frame), hmd.valid ? 1 : 0,
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
@@ -115,7 +118,8 @@ namespace dayz::script_bridge
                 probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0, g_ammoCounter ? 1 : 0,
                 viewYawOffset, viewPitchOffset,
                 hud.valid ? hud.left : 0.0f, hud.valid ? hud.top : 0.0f,
-                hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f);
+                hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f,
+                g_steerValid.load(std::memory_order_relaxed) ? 1 : 0, g_steer.load(std::memory_order_relaxed));
             FILE* file{};
             if (_wfopen_s(&file, g_vrTempPath.c_str(), L"wb") != 0 || !file)
                 return;
@@ -215,6 +219,12 @@ namespace dayz::script_bridge
     {
         std::lock_guard<std::mutex> lock(g_stateMutex);
         return g_state;
+    }
+
+    void SetVehicleSteer(float steer, bool valid) noexcept
+    {
+        g_steer.store(valid ? steer : 0.0f, std::memory_order_relaxed);
+        g_steerValid.store(valid, std::memory_order_relaxed);
     }
 
     bool Enabled() noexcept

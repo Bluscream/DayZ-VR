@@ -34,4 +34,7 @@ namespace dayz::script_bridge
     void Update() noexcept;
     GameState GetGameState() noexcept;
     bool Enabled() noexcept;
+    // Controller steering wheel value for vr.txt (steer_valid=, steer=), set by the
+    // OpenXR host every frame; the Enforce side applies it while driving.
+    void SetVehicleSteer(float steer, bool valid) noexcept;
 }

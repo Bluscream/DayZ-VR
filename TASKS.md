@@ -236,12 +236,20 @@ detour. Update the entry when you touch the track; keep history in git, not here
   (speed went negative: the car rolled, wheels present) and `steer off` returns it to 0,
   so `CarScript.OnUpdate` → `SetSteering` beats the engine's keyboard steering.
   Analogue VR steering can therefore be done in script, fed from vr.txt.
-- Next: (1) native: compute a steering value from the controllers (right grip roll
-  angle, or two-hand "wheel" angle between grips) and publish `steer=` in vr.txt;
-  (2) Enforce: `DayZVRSteering` reads `steer` from the bridge while the local player
-  drives (override off when the value is stale); (3) throttle/brake on triggers via
-  `SetThrottle`/`SetBrake` the same way (both are script natives); (4) real-headset
-  tuning of the wheel angle range and dead zone.
+- State (08:17): two-hand wheel implemented end to end. `common/vehicle_steering.*`
+  (rim = line between the grips, tilt → steer, deadzone, invert; host test) → host
+  `PublishVehicleSteering` → vr.txt `steer_valid=`/`steer=` → `DayZVRBridge.ReadVr`
+  copies into `DayZVRSteering` statics (World module cannot see Mission classes) →
+  `CarScript.OnUpdate` `SetSteering` while the local player drives and the value is
+  fresh (<1 s). `[vehicle]` ini keys are live tunables (`vehicle.*`). Verified on the
+  sim: `invert` flips the sign and the car reports `steering=-0`, `vehicle.steering=0`
+  drops `steer_valid` and the override; the static sim hands are level so the
+  magnitude cannot be exercised headless.
+- Next: (1) throttle/brake on the triggers via `SetThrottle`/`SetBrake` the same way
+  (both script natives; the triggers currently press mouse buttons, so gate on
+  `in_vehicle`); (2) real-headset tuning of `wheel_max_degrees`/`deadzone`, and a
+  "grab the wheel" gesture (both grips held) so resting hands do not steer; (3) hands
+  visibly on the wheel (hand models) once the hand-model track exists.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash

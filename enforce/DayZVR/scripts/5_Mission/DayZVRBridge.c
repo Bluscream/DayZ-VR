@@ -12,6 +12,8 @@ class DayZVRBridge
 	protected float m_Accumulated;
 	protected int m_Frame;
 	protected ref map<string, string> m_Vr = new map<string, string>();
+	protected string m_VrFrame;
+	protected float m_VrFrameTime; // GetGame().GetTime() ms when vr.txt last changed
 
 	static DayZVRBridge Get()
 	{
@@ -24,6 +26,12 @@ class DayZVRBridge
 		if (m_Vr.Find(key, value))
 			return value;
 		return "";
+	}
+
+	// True while the native side keeps writing vr.txt (frame changed within maxAgeMs).
+	bool VrFresh(float maxAgeMs = 1000)
+	{
+		return m_VrFrame != "" && GetGame().GetTime() - m_VrFrameTime <= maxAgeMs;
 	}
 
 	float VrFloat(string key)
@@ -117,6 +125,16 @@ class DayZVRBridge
 			m_Vr.Set(line.Substring(0, separator), line.Substring(separator + 1, line.Length() - separator - 1));
 		}
 		CloseFile(file);
+		string frame = Vr("frame");
+		if (frame != m_VrFrame)
+		{
+			m_VrFrame = frame;
+			m_VrFrameTime = GetGame().GetTime();
+		}
+		// Hand the steering wheel value to the World module (see DayZVRVehicle.c).
+		DayZVRSteering.s_VrValid = Vr("steer_valid") == "1";
+		DayZVRSteering.s_VrSteer = VrFloat("steer");
+		DayZVRSteering.s_VrTime = m_VrFrameTime;
 	}
 
 	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in

@@ -3,6 +3,7 @@
 
 #include "ammo_display.hpp"
 #include "melee_swing.hpp"
+#include "vehicle_steering.hpp"
 #include "xr_frame_policy.hpp"
 #include "comfort.hpp"
 #include "script_bridge.hpp"
@@ -864,6 +865,10 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     meleeHeavySpeed_ = (std::clamp)(ReadFloat(L"melee", L"heavy_speed", 3.2f), 0.2f, 20.0f);
     meleeCooldownSeconds_ = (std::clamp)(ReadFloat(L"melee", L"cooldown_seconds", 0.5f), 0.0f, 5.0f);
     meleeHeavyHoldSeconds_ = (std::clamp)(ReadFloat(L"melee", L"heavy_hold_seconds", 0.45f), 0.05f, 2.0f);
+    vehicleSteering_ = ReadBoolean(L"vehicle", L"steering", true) ? 1.0f : 0.0f;
+    vehicleWheelMaxDegrees_ = (std::clamp)(ReadFloat(L"vehicle", L"wheel_max_degrees", 90.0f), 10.0f, 180.0f);
+    vehicleDeadzone_ = (std::clamp)(ReadFloat(L"vehicle", L"deadzone", 0.05f), 0.0f, 0.9f);
+    vehicleInvert_ = ReadBoolean(L"vehicle", L"invert", false) ? 1.0f : 0.0f;
     // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
     hostTunables_ = {{
         {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
@@ -877,6 +882,10 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         {"melee.heavy_speed", &meleeHeavySpeed_, 0.2f, 20.0f},
         {"melee.cooldown_seconds", &meleeCooldownSeconds_, 0.0f, 5.0f},
         {"melee.heavy_hold_seconds", &meleeHeavyHoldSeconds_, 0.05f, 2.0f},
+        {"vehicle.steering", &vehicleSteering_, 0.0f, 1.0f},
+        {"vehicle.wheel_max_degrees", &vehicleWheelMaxDegrees_, 10.0f, 180.0f},
+        {"vehicle.deadzone", &vehicleDeadzone_, 0.0f, 0.9f},
+        {"vehicle.invert", &vehicleInvert_, 0.0f, 1.0f},
     }};
     dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
@@ -1025,6 +1034,34 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
     for (auto& location : aimLocations_)
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
+    dayz::script_bridge::SetVehicleSteer(0.0f, false);
+}
+
+// Two-hand wheel from both grips -> vr.txt steer= (applied by the Enforce side only
+// while the local player drives, so publishing it every frame is harmless).
+void OpenXrHost::PublishVehicleSteering() noexcept
+{
+    if (vehicleSteering_.load(std::memory_order_relaxed) == 0.0f)
+    {
+        dayz::script_bridge::SetVehicleSteer(0.0f, false);
+        return;
+    }
+    constexpr XrSpaceLocationFlags kPosition = XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    dayz::vehicle_steering::Hands hands;
+    hands.leftValid = (gripLocations_[0].locationFlags & kPosition) != 0;
+    hands.rightValid = (gripLocations_[1].locationFlags & kPosition) != 0;
+    hands.leftX = gripLocations_[0].pose.position.x;
+    hands.leftY = gripLocations_[0].pose.position.y;
+    hands.leftZ = gripLocations_[0].pose.position.z;
+    hands.rightX = gripLocations_[1].pose.position.x;
+    hands.rightY = gripLocations_[1].pose.position.y;
+    hands.rightZ = gripLocations_[1].pose.position.z;
+    dayz::vehicle_steering::Config config;
+    config.wheelMaxDegrees = vehicleWheelMaxDegrees_.load(std::memory_order_relaxed);
+    config.deadzone = vehicleDeadzone_.load(std::memory_order_relaxed);
+    config.invert = vehicleInvert_.load(std::memory_order_relaxed) != 0.0f;
+    const dayz::vehicle_steering::Result result = dayz::vehicle_steering::Compute(hands, config);
+    dayz::script_bridge::SetVehicleSteer(result.steer, result.valid);
 }
 
 // Feeds the right grip position to the swing detector and holds DayZ's attack
@@ -1187,6 +1224,7 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
             rightAim.pose.orientation.y, rightAim.pose.orientation.z,
             rightAim.pose.orientation.w, valid);
     }
+    PublishVehicleSteering();
     // vr_common is shared by the DLL and the standalone probe. _WINDLL describes
     // how this translation unit was compiled, not which host is using it.
     if (!gameSwapChain_)

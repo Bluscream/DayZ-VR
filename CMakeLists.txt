@@ -27,7 +27,8 @@ add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/dayz_runtime_probe.cpp common/debug_bridge.cpp common/crash_report.cpp
   common/dayz_patches.cpp common/dayz_hotkeys.cpp common/hmd_aim_loop.cpp common/comfort.cpp common/script_bridge.cpp
   common/ammo_display.cpp
-  common/melee_swing.cpp)
+  common/melee_swing.cpp
+  common/vehicle_steering.cpp)
 target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)
