@@ -337,6 +337,74 @@ does not yet); update them when a track's State changes.
   (6) seated recenter / view lock to vehicle yaw; (7) a native fire hook to remove
   the 100 ms haptic latency.
 
+## V3. Headset session 2026-10-02 (Quest 3 over WiVRn, DayZ 1.29.163709)
+First real-headset run of the new work. Launch recipe (the WiVRn flatpak's
+`active_runtime.json` has a relative `library_path` that pressure-vessel cannot resolve, so
+a copy with absolute paths under `build/wivrn/` is imported):
+`XR_RUNTIME_JSON=$PWD/build/wivrn/active_runtime.json PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1
+PRESSURE_VESSEL_FILESYSTEMS_RW=/run/user/1000/wivrn scripts/run-dayz-direct.sh -- -connect=127.0.0.1
+-port=2302 "-mod=@DayZVR"`. In-headset screenshots: `adb exec-out screencap -p` on the
+mDNS serial (`adb devices`), 4128x2208 side by side. Evidence in `build/logs/headset-*`,
+`quest-shot-*`, `quest-jitter.mp4`.
+
+Verified on the headset (FEATURES.md updated): alternate-eye stereo with the GUI quad,
+ESC menu usable from the headset (far/small), stick movement, haptic pulse per shot plus
+the ammo label counting down (M4A1, single shots), two-hand steering (janky but steers),
+trigger pedals (in 1st gear), physical crouch, `hands`/`give`/`spawn` server commands.
+
+Findings, each with its fix state:
+- Tracking and injected input only work while the DayZ window has focus (audit2 V01/V02);
+  the user wants both without focus. Open; see I1 below (direct script control is the fix,
+  SendInput is the cause).
+- Closed-loop aim is unusable on the headset: the gain estimator diverges (-36..-1533) and
+  the errors wrap to ±180° (`headset-loop-watch-closed.txt`). Open loop with
+  `hmd_mouse_yaw_scale=-180` / `pitch=-135` is smooth but "the view distorts with head
+  movement" (DayZ's camera trails the render camera). Render-only lock is smooth and also
+  distorts. Open: clamp/anti-windup or default to open loop at those scales; investigate the
+  latency between render pose and the game camera (reprojection from the previous frame).
+- Stick turn is dead while `lock_yaw` (render-only yaw swallows the turn). Open.
+- Eyes needed `camera_separation=-0.064`, `image_shift=-0.128` on WiVRn (repo defaults are
+  positive); direction rays ("light cones") confuse users. Open: defaults/docs.
+- GUI quad: menu and inventory show in the headset only (the user wants the desktop mirror
+  too); the controller ray only clicks while focused; inventory item icons do not render on
+  the quad; HMD-look pitch in the inventory is inverted. Open.
+- Entering the car needed the keyboard (hold F); in the car a manual mouse recenter was
+  needed; throttle in N drives backwards, gear up is Shift+E (not W), right stick does
+  nothing; horn/lights showed no visible effect although the action ran 8x. Open:
+  auto-recenter on enter, `ShiftTo` on throttle in N, right-stick shifting.
+- Holding a grip while driving ejected the driver: RGRAB is bound to F, which is "Get out"
+  on a car with physics. Fixed (3be95bf: no F while driving).
+- Spawned cars had no collision: `spawn` lacked `ECE_SETUP`. Fixed (14e5161, flags as the
+  game's ObjectSpawner). `hands M4A1` was refused: `KnownClass` only looked at CfgVehicles.
+  Fixed (4e39ab2).
+- Melee animation plays only with the arms raised (left trigger); the user wants arms and
+  hands following the controllers (salute, wave) with only the legs animated. Open: needs an
+  upper-body IK/animation layer (M3/M4 territory), not a flag.
+- B = jump (user asks why not A); left trigger toggle/hold = raise. Open: mapping review
+  once I1 lands.
+
+## I1. Direct input: HumanInputController and ActionManager instead of SendInput
+- Why: SendInput needs window focus (V01), gives only digital keys (no analog walk speed),
+  and mixes badly with DayZ's own mouse camera. DayZ reads XInput natively but its PC pad
+  layout is weak and flips the UI into controller mode; a virtual pad (uinput/SDL into
+  Wine's xinput) adds a device layer for no gain. In-process `XInputGetState` hooking stays
+  an option for what scripting cannot reach (menus, inventory navigation).
+- Design: the host publishes the wanted input per frame in vr.txt (`move_speed` 0..3,
+  `move_angle` rad, `aim_dx/dy` rad, `jump`, `use`, `raise`, `evade`, `freelook`,
+  `inventory`, `menu`), the `@DayZVR` mod applies them from `PlayerBase.CommandHandler`
+  through `HumanInputController.OverrideMovementSpeed/Angle`, `OverrideAimChangeX/Y`,
+  `OverrideRaise`, `OverrideMeleeEvade`, `OverrideFreeLook` (ONE_FRAME each tick, so a dead
+  bridge releases control), `OverrideJump` (DayZPlayerImplement), and the use/interact
+  button through `ActionManagerClient.PerformActionStart` on the current target
+  (`FindActionTarget`) or `InjectAction`. The server mod mirrors the overrides per consumed
+  move the way dayz-mcp PR 191 does; without it the server may rubber-band, so the keyboard
+  path stays as fallback (`[controls] inject_keys=true`).
+- Bridge latency: vr.txt is written every 6 frames and read at 10 Hz; movement and aim
+  need every-frame delivery, so the mod must read a small `input.txt` each CommandHandler
+  tick (or vr.txt itself at frame rate) and the host write it per frame.
+- Order: movement+aim+jump+raise first (fixes focus for walking and looking), then use via
+  the action manager, then menus via XInput hook or UIManager, then remove the key path.
+
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash
   not reproducible headless; crash reporter logs an event trail on the next real crash.

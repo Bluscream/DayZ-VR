@@ -96,6 +96,15 @@ unproven, **headset** = implemented and sim-verified, waits for a real headset,
 
 ## 7. Headset verification backlog (everything since 2026-10-01)
 
+First headset session done 2026-10-02 (TASKS.md V3): verified alternate-eye stereo, GUI
+quad, haptics per shot, ammo label, steering, pedals, physical crouch. Open from it: input
+only with window focus (TASKS I1 direct input), closed-loop aim unusable on the HMD (open
+loop -180/-135 smooth but the view trails), stick turn dead with lock_yaw, WiVRn needs
+negative eye separation, direction rays default on, GUI quad not mirrored to the desktop,
+inventory icons missing on the quad, inventory pitch inverted, car: auto-recenter on enter,
+ShiftTo from N, right-stick shifting, horn/lights no visible effect, arms following the
+controllers instead of the body animation, B/A jump mapping.
+
 Listed once here; every row above marked **headset** belongs to it. Also: GE-Proton 11-7
 compatibility, hotkeys F9-F12 on the real keyboard, stick-click recenter, drag-crash guard
 under WiVRn, the per-frame `xr_ms` wait breakdown on WiVRn.
