@@ -3,6 +3,7 @@
 #include "../common/ammo_display.hpp"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 using namespace dayz::ammo_display;
@@ -38,6 +39,15 @@ int main()
         Expect(ColourFor(0, false) == 0xFF4040FFu, "empty is red");
         Expect(ColourFor(3, false) == 0xFF40C0FFu, "low is amber");
         Expect(ColourFor(30, true) == 0xFFFFFFFFu, "full is white");
+        for (const bool chamber : {false, true})
+        {
+            Expect(ColourFor((std::numeric_limits<int>::max)(), chamber) == 0xFFFFFFFFu,
+                "maximum bridge count does not overflow");
+            Expect(ColourFor((std::numeric_limits<int>::min)(), chamber) ==
+                (chamber ? 0xFF40C0FFu : 0xFF4040FFu), "negative bridge count has no magazine");
+        }
+        Expect(ColourFor(5, false) == 0xFF40C0FFu, "five rounds low");
+        Expect(ColourFor(5, true) == 0xFFFFFFFFu, "five plus chamber not low");
 
         const Bitmap eight = Render("8", 32, 0xFFFFFFFFu);
         const Bitmap one = Render("1", 32, 0xFFFFFFFFu);

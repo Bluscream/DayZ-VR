@@ -138,7 +138,9 @@ namespace dayz::ammo_display
 
     std::uint32_t ColourFor(int ammo, bool chamber) noexcept
     {
-        const int total = (ammo < 0 ? 0 : ammo) + (chamber ? 1 : 0);
+        // Only the low-ammo thresholds matter; cap before adding the chamber so
+        // even malformed bridge values cannot overflow a signed integer.
+        const int total = (std::clamp)(ammo, 0, 6) + (chamber ? 1 : 0);
         if (total <= 0)
             return 0xFF4040FFu;  // red
         if (total <= 5)
