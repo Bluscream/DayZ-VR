@@ -18,6 +18,9 @@
 
 namespace
 {
+    constexpr dayz::xr::ImageCalls kImageCalls{xrAcquireSwapchainImage,
+        xrWaitSwapchainImage, xrReleaseSwapchainImage};
+
     bool SameLuid(const LUID& left, const LUID& right) noexcept
     {
         return left.HighPart == right.HighPart && left.LowPart == right.LowPart;
@@ -186,6 +189,17 @@ bool OpenXrHost::Check(XrResult result, const char* operation) const noexcept
     if (XR_SUCCEEDED(result))
         return true;
     logging::XrError(operation, result);
+    return false;
+}
+
+bool OpenXrHost::CheckImageUpdate(const dayz::xr::ImageUpdate& update, const char* operation) noexcept
+{
+    if (update.Ready())
+        return true;
+    if (update.failure != dayz::xr::ImageFailure::Render)
+        logging::XrError(operation, update.result);
+    if (update.MustStop())
+        shouldExit_ = true;
     return false;
 }
 
@@ -605,10 +619,11 @@ bool OpenXrHost::CreateSwapchains()
         logging::Error("GUI quad swapchain is unavailable; projection rendering will continue");
         guiQuadEnabled_ = false;
     }
-    if (controllerAxesEnabled_ && !CreateAxisSwapchain(formats))
+    if ((controllerAxesEnabled_ || guiRayEnabled_ || directionRaysEnabled_) &&
+        !CreateAxisSwapchain(formats))
     {
         logging::Error("Controller axis swapchain unavailable; controller input will continue");
-        controllerAxesEnabled_ = false;
+        controllerAxesEnabled_ = guiRayEnabled_ = directionRaysEnabled_ = false;
     }
     if (ammoQuadEnabled_ && !CreateAmmoSwapchain(formats))
     {
@@ -748,24 +763,17 @@ bool OpenXrHost::PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept
             for (unsigned x = 0; x < bitmap.width && x + shift < ammoSwapchain_.width; ++x)
                 full[static_cast<std::size_t>(y) * ammoSwapchain_.width + x + shift] =
                     bitmap.pixels[static_cast<std::size_t>(y) * bitmap.width + x];
-        std::uint32_t imageIndex{};
-        XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
-        if (!XR_SUCCEEDED(xrAcquireSwapchainImage(ammoSwapchain_.handle, &acquire, &imageIndex)))
-            return ammoSwapchain_.hasImage;
-        XrSwapchainImageWaitInfo wait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
-        wait.timeout = XR_INFINITE_DURATION;
-        if (XR_SUCCEEDED(xrWaitSwapchainImage(ammoSwapchain_.handle, &wait)))
-        {
-            context_->UpdateSubresource(ammoSwapchain_.images[imageIndex].texture, 0, nullptr,
-                full.data(), ammoSwapchain_.width * sizeof(std::uint32_t), 0);
-            ammoSwapchain_.text = text;
-            ammoSwapchain_.colour = colour;
-            ammoSwapchain_.hasImage = true;
-        }
-        XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
-        xrReleaseSwapchainImage(ammoSwapchain_.handle, &release);
-        if (!ammoSwapchain_.hasImage)
+        const auto update = dayz::xr::UpdateImage(ammoSwapchain_.handle, kImageCalls,
+            [&](std::uint32_t imageIndex) {
+                context_->UpdateSubresource(ammoSwapchain_.images[imageIndex].texture, 0, nullptr,
+                    full.data(), ammoSwapchain_.width * sizeof(std::uint32_t), 0);
+                return true;
+            });
+        if (!CheckImageUpdate(update, "ammo image update"))
             return false;
+        ammoSwapchain_.text = text;
+        ammoSwapchain_.colour = colour;
+        ammoSwapchain_.hasImage = true;
     }
     layer = (MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
     layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
@@ -821,10 +829,6 @@ bool OpenXrHost::CreateAxisSwapchain(const std::vector<std::int64_t>& formats)
             reinterpret_cast<XrSwapchainImageBaseHeader*>(axisSwapchain_.images.data())),
             "xrEnumerateSwapchainImages(controller axes)"))
         return false;
-    const std::uint32_t pixels[8]{0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u,
-        0x70FFFF00u, 0xB0FFFFFFu, 0xB0FF8000u, 0xB000FFFFu, 0xB0FF00FFu};
-    for (const auto& image : axisSwapchain_.images)
-        context_->UpdateSubresource(image.texture, 0, nullptr, pixels, sizeof(pixels), 0);
     logging::Info("Controller XYZ axis swapchain ready");
     return true;
 }
@@ -1345,6 +1349,7 @@ void OpenXrHost::RenderFrame()
 
     const bool guiVisible = gameSwapChain_ && guiQuadEnabled_ && guiSwapchain_.handle != XR_NULL_HANDLE &&
         dayz::runtime_probe::IsGuiQuadVisible();
+    bool projectionReady = false;
     if (frameState.shouldRender && located)
     {
         dayz::stereo_state::UpdateEyePositions(
@@ -1393,7 +1398,7 @@ void OpenXrHost::RenderFrame()
                 // over the log interval): a wait-bound game shows up here, a CPU/GPU-bound
                 // one in the remainder (frame interval minus xr_total).
                 const double n = static_cast<double>(timing_.frames);
-                pose << " xr_ms wait_frame=" << timing_.waitFrame / n << " wait_image=" << timing_.waitImage / n
+                pose << " xr_ms wait_frame=" << timing_.waitFrame / n << " image_work=" << timing_.imageWork / n
                      << " end_frame=" << timing_.endFrame / n << " total=" << timing_.total / n
                      << " interval=" << (seconds * 1000.0 / 120.0);
                 timing_ = {};
@@ -1411,38 +1416,34 @@ void OpenXrHost::RenderFrame()
             debugSnapshot_.grip = gripLocations_;
             debugSnapshot_.aim = aimLocations_;
         }
+        projectionReady = true;
         for (std::size_t eye = 0; eye < eyeSwapchains_.size(); ++eye)
         {
             auto& swapchain = eyeSwapchains_[eye];
-            std::uint32_t imageIndex{};
-            XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
-            if (!Check(xrAcquireSwapchainImage(swapchain.handle, &acquire, &imageIndex),
-                "xrAcquireSwapchainImage"))
-                continue;
-            XrSwapchainImageWaitInfo imageWait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
-            imageWait.timeout = XR_INFINITE_DURATION;
-            const auto imageWaitStart = std::chrono::steady_clock::now();
-            const bool ready = Check(xrWaitSwapchainImage(swapchain.handle, &imageWait),
-                "xrWaitSwapchainImage");
-            timing_.waitImage += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - imageWaitStart).count();
-            if (ready)
+            const auto imageStart = std::chrono::steady_clock::now();
+            const auto update = dayz::xr::UpdateImage(swapchain.handle, kImageCalls,
+                [&](std::uint32_t imageIndex) {
+                    EyeRenderInfo renderInfo{};
+                    renderInfo.eyeIndex = static_cast<std::uint32_t>(eye);
+                    renderInfo.pose = views_[eye].pose;
+                    renderInfo.fov = views_[eye].fov;
+                    renderInfo.target = swapchain.images[imageIndex].texture;
+                    renderInfo.rtv = swapchain.rtvs[imageIndex].Get();
+                    renderInfo.width = swapchain.width;
+                    renderInfo.height = swapchain.height;
+                    if (gameFrameSource_ && gameFrameSource_->HasGameData())
+                        gameFrameSource_->RenderEye(renderInfo);
+                    else
+                        debugFrameSource_->RenderEye(renderInfo);
+                    return true;
+                });
+            timing_.imageWork += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - imageStart).count();
+            if (!CheckImageUpdate(update, "eye image update"))
             {
-                EyeRenderInfo renderInfo{};
-                renderInfo.eyeIndex = static_cast<std::uint32_t>(eye);
-                renderInfo.pose = views_[eye].pose;
-                renderInfo.fov = views_[eye].fov;
-                renderInfo.target = swapchain.images[imageIndex].texture;
-                renderInfo.rtv = swapchain.rtvs[imageIndex].Get();
-                renderInfo.width = swapchain.width;
-                renderInfo.height = swapchain.height;
-                if (gameFrameSource_ && gameFrameSource_->HasGameData())
-                    gameFrameSource_->RenderEye(renderInfo);
-                else
-                    debugFrameSource_->RenderEye(renderInfo);
+                projectionReady = false;
+                break;
             }
-            XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
-            Check(xrReleaseSwapchainImage(swapchain.handle, &release), "xrReleaseSwapchainImage");
-
             auto& layerView = projectionViews[eye];
             layerView.pose = views_[eye].pose;
             layerView.fov = views_[eye].fov;
@@ -1452,26 +1453,15 @@ void OpenXrHost::RenderFrame()
             layerView.subImage.imageArrayIndex = 0;
         }
 
-        if (guiVisible)
+        guiQuadHasImage_ = false;
+        if (guiVisible && !shouldExit_)
         {
-            std::uint32_t imageIndex{};
-            XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
-            if (Check(xrAcquireSwapchainImage(guiSwapchain_.handle, &acquire, &imageIndex),
-                "xrAcquireSwapchainImage(gui)"))
-            {
-                XrSwapchainImageWaitInfo imageWait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
-                imageWait.timeout = XR_INFINITE_DURATION;
-                if (Check(xrWaitSwapchainImage(guiSwapchain_.handle, &imageWait),
-                    "xrWaitSwapchainImage(gui)"))
-                {
-                    guiQuadHasImage_ = dayz::runtime_probe::RenderGuiQuad(
-                        guiSwapchain_.rtvs[imageIndex].Get(), guiSwapchain_.width,
-                        guiSwapchain_.height) || guiQuadHasImage_;
-                }
-                XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
-                Check(xrReleaseSwapchainImage(guiSwapchain_.handle, &release),
-                    "xrReleaseSwapchainImage(gui)");
-            }
+            const auto update = dayz::xr::UpdateImage(guiSwapchain_.handle, kImageCalls,
+                [&](std::uint32_t imageIndex) {
+                    return dayz::runtime_probe::RenderGuiQuad(guiSwapchain_.rtvs[imageIndex].Get(),
+                        guiSwapchain_.width, guiSwapchain_.height);
+                });
+            guiQuadHasImage_ = CheckImageUpdate(update, "GUI image update");
         }
     }
     guiQuadWasVisible_ = guiVisible;
@@ -1498,30 +1488,21 @@ void OpenXrHost::RenderFrame()
         static_cast<float>((std::max)(1u, guiSwapchain_.width));
     std::array<XrCompositionLayerQuad, 14> axisLayers{};
     std::uint32_t axisLayerCount{};
-    if (frameState.shouldRender && located &&
+    if (projectionReady && !shouldExit_ &&
         (controllerAxesEnabled_ || guiRayEnabled_ || directionRaysEnabled_) &&
         axisSwapchain_.handle != XR_NULL_HANDLE)
     {
-        std::uint32_t imageIndex{};
-        XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
-        if (XR_SUCCEEDED(xrAcquireSwapchainImage(axisSwapchain_.handle, &acquire,
-                &imageIndex)))
-        {
-            XrSwapchainImageWaitInfo wait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
-            wait.timeout = XR_INFINITE_DURATION;
-            if (XR_SUCCEEDED(xrWaitSwapchainImage(axisSwapchain_.handle, &wait)))
-            {
+        const auto update = dayz::xr::UpdateImage(axisSwapchain_.handle, kImageCalls,
+            [&](std::uint32_t imageIndex) {
                 const std::uint32_t pixels[8]{0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u,
-                    0x70FFFF00u, 0xB0FFFFFFu, 0xB0FF8000u, 0xB000FFFFu,
-                    0xB0FF00FFu};
+                    0x70FFFF00u, 0xB0FFFFFFu, 0xB0FF8000u, 0xB000FFFFu, 0xB0FF00FFu};
                 context_->UpdateSubresource(axisSwapchain_.images[imageIndex].texture, 0,
                     nullptr, pixels, sizeof(pixels), 0);
-            }
-            XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
-            xrReleaseSwapchainImage(axisSwapchain_.handle, &release);
-        }
+                return true;
+            });
+        const bool axisReady = CheckImageUpdate(update, "axis image update");
         constexpr float s = 0.70710678f;
-        if (controllerAxesEnabled_)
+        if (axisReady && controllerAxesEnabled_)
         {
             constexpr float halfLength = 0.04f;
             constexpr float thickness = 0.006f;
@@ -1557,7 +1538,7 @@ void OpenXrHost::RenderFrame()
                 }
             }
         }
-        if (guiRayEnabled_ && guiVisible && guiRayValid_ &&
+        if (axisReady && guiRayEnabled_ && guiVisible && guiRayValid_ &&
             axisLayerCount + 4 <= axisLayers.size())
         {
             const XrPosef& aim = aimLocations_[1].pose;
@@ -1586,7 +1567,7 @@ void OpenXrHost::RenderFrame()
                 rayLayer.size = {currentGuiRayLength_, guiRayThickness_};
             }
         }
-        if (directionRaysEnabled_ && !guiVisible && axisLayerCount + 6 <= axisLayers.size())
+        if (axisReady && directionRaysEnabled_ && !guiVisible && axisLayerCount + 6 <= axisLayers.size())
         {
             const XrVector3f origin{
                 (views_[0].pose.position.x + views_[1].pose.position.x) * 0.5f,
@@ -1632,10 +1613,10 @@ void OpenXrHost::RenderFrame()
         }
     }
     std::array<const XrCompositionLayerBaseHeader*, 16> layers{};
-    std::uint32_t layerCount = frameState.shouldRender && located ? 1u : 0u;
+    std::uint32_t layerCount = projectionReady && !shouldExit_ ? 1u : 0u;
     if (layerCount)
         layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
-    for (std::uint32_t index = 0; index < axisLayerCount && layerCount < layers.size(); ++index)
+    for (std::uint32_t index = 0; layerCount && index < axisLayerCount && layerCount < layers.size(); ++index)
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
             &axisLayers[index]);
     XrCompositionLayerQuad ammoLayer{};
@@ -1646,6 +1627,10 @@ void OpenXrHost::RenderFrame()
     XrFrameEndInfo endInfo(MakeXr<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO));
     endInfo.displayTime = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    // An unresolved image ownership failure poisons the session; complete the
+    // begun frame with no layers and let Tick stop issuing frames afterwards.
+    if (shouldExit_)
+        layerCount = 0;
     endInfo.layerCount = layerCount;
     endInfo.layers = layerCount ? layers.data() : nullptr;
     const auto endStart = std::chrono::steady_clock::now();
@@ -1672,8 +1657,10 @@ void OpenXrHost::Tick() noexcept
     if (!initialized_)
         return;
     PollEvents();
-    if (sessionRunning_)
+    if (sessionRunning_ && !shouldExit_)
         RenderFrame();
+    if (shouldExit_)
+        ReleaseControllerKeys();
 }
 
 void OpenXrHost::Shutdown() noexcept

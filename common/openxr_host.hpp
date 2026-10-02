@@ -2,6 +2,7 @@
 
 #include "frame_source.hpp"
 #include "xr_structure.hpp"
+#include "xr_swapchain_image.hpp"
 
 #include <atomic>
 #include <d3d11.h>
@@ -112,6 +113,7 @@ private:
     void RenderFrame();
     void AnchorGuiQuad(const XrPosef& headPose) noexcept;
     bool Check(XrResult result, const char* operation) const noexcept;
+    bool CheckImageUpdate(const dayz::xr::ImageUpdate& update, const char* operation) noexcept;
 
     mutable std::mutex mutex_;
     mutable std::mutex debugMutex_;
@@ -119,7 +121,7 @@ private:
     double lastFps_{};
     struct FrameTiming
     {
-        double waitFrame{}, waitImage{}, endFrame{}, total{};
+        double waitFrame{}, imageWork{}, endFrame{}, total{};
         unsigned frames{};
     } timing_{};
     XrInstance instance_{XR_NULL_HANDLE};
