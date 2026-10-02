@@ -5,6 +5,7 @@
 #include "dayz_hotkeys.hpp"
 #include "dayz_patches.hpp"
 #include "hmd_aim_loop.hpp"
+#include "projection_replay.hpp"
 #include "script_bridge.hpp"
 
 #include "logging.hpp"
@@ -179,8 +180,7 @@ namespace
     }
     // Context of the per-frame projection dispatch (mode 1): DayZ builds the
     // view matrices there once per frame, so each eye pass re-dispatches it.
-    OpaqueContext* g_lastProjectionContext{};
-    std::atomic<bool> g_projectionSeenThisFrame{false};
+    dayz::runtime_probe::ProjectionReplay g_projectionReplay;
     RsSetViewportsFn g_rsSetViewports{};
     ClearRtvFn g_clearRtv{};
     ClearDsvFn g_clearDsv{};
@@ -1547,6 +1547,9 @@ float4 PSMain(VertexOutput input) : SV_Target
 
     std::uintptr_t __fastcall HookedProjectionDispatch(OpaqueContext* context, std::uint8_t mode);
 
+    std::uintptr_t DispatchProjection(OpaqueContext* context, std::uint8_t mode,
+        bool internalReplay);
+
     void RotateCameraBasisAboutUp(OpaqueCamera* camera, float yaw) noexcept;
 
     bool WorldRenderSignatureMatches() noexcept
@@ -1567,7 +1570,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         // Only double-render in-world frames whose projection dispatch ran this
         // frame; menus and loading screens (no calibrated camera, stale context)
         // hung the game when rendered twice.
-        const bool projectionFresh = g_projectionSeenThisFrame.exchange(false, std::memory_order_relaxed);
+        auto* projection = static_cast<OpaqueContext*>(g_projectionReplay.Consume());
+        const bool projectionFresh = projection != nullptr;
         g_worldRenderCallsThisFrame.fetch_add(1, std::memory_order_relaxed);
         {
             D3D11_TEXTURE2D_DESC none{};
@@ -1581,25 +1585,20 @@ float4 PSMain(VertexOutput input) : SV_Target
         }
         const std::uintptr_t saved0 = slots[0];
         const std::uintptr_t saved1 = slots[1];
-        OpaqueContext* projection = g_lastProjectionContext;
         dayz::stereo_state::SetRenderedEye(0);
-        if (projection)
-            HookedProjectionDispatch(projection, 1);
+        DispatchProjection(projection, 1, true);
         g_worldRender(engine, frame, slots);
         // The left image is captured by the clear hook at the start of the
         // right pass in DayZ's command stream; the right image at Present.
         slots[0] = saved0;
         slots[1] = saved1;
         dayz::stereo_state::SetRenderedEye(1);
-        if (projection)
-        {
-            // Per-pass camera changes must precede the dispatch that builds the
-            // view matrices; HookedProjectionDispatch applies the eye offset.
-            if (g_doubleDebugYaw != 0.0f)
-                RotateCameraBasisAboutUp(ReadField<OpaqueCamera*>(projection, kContextCamera),
-                    g_doubleDebugYaw);
-            HookedProjectionDispatch(projection, 1);
-        }
+        // Per-pass camera changes must precede the matrix rebuild, without
+        // treating our own rebuild as a fresh projection from the engine.
+        if (g_doubleDebugYaw != 0.0f)
+            RotateCameraBasisAboutUp(ReadField<OpaqueCamera*>(projection, kContextCamera),
+                g_doubleDebugYaw);
+        DispatchProjection(projection, 1, true);
         g_worldRender(engine, frame, slots);
         const std::uint64_t frames = g_doubleRenderFrames.fetch_add(1) + 1;
         if (frames == 1 || frames % 600 == 0)
@@ -1618,17 +1617,15 @@ float4 PSMain(VertexOutput input) : SV_Target
         return g_finalizeView(engine, context, mode);
     }
 
-    std::uintptr_t __fastcall HookedProjectionDispatch(OpaqueContext* context, std::uint8_t mode)
+    std::uintptr_t DispatchProjection(OpaqueContext* context, std::uint8_t mode,
+        bool internalReplay)
     {
         ApplyProfileFovOverride();
         ApplyActiveCameraFovOverride();
         EnsureCameraRefreshHook(context);
         ApplyAlternateEye(ReadField<OpaqueCamera*>(context, kContextCamera));
         if (mode == 1)
-        {
-            g_lastProjectionContext = context;
-            g_projectionSeenThisFrame.store(true, std::memory_order_relaxed);
-        }
+            g_projectionReplay.Publish(context, internalReplay);
         Record(EventKind::Projection, context, mode);
         OpaqueCamera* previousProjectionCamera = g_projectionContextCamera;
         g_projectionContextCamera = ReadField<OpaqueCamera*>(context, kContextCamera);
@@ -1640,6 +1637,11 @@ float4 PSMain(VertexOutput input) : SV_Target
         // and are excluded by HookedCameraRefresh.
         g_projectionContextCamera = previousProjectionCamera;
         return result;
+    }
+
+    std::uintptr_t __fastcall HookedProjectionDispatch(OpaqueContext* context, std::uint8_t mode)
+    {
+        return DispatchProjection(context, mode, false);
     }
 
     char __fastcall HookedHudLayout(void* renderer)
