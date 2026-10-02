@@ -94,7 +94,17 @@ class DayZVRServerCmd
 	// an engine error, so check the config first.
 	static bool KnownClass(string name)
 	{
-		return name.Length() <= 64 && GetGame().ConfigIsExisting("CfgVehicles " + name);
+		if (name.Length() > 64)
+			return false;
+		// Items and vehicles are CfgVehicles; firearms CfgWeapons; magazines and
+		// ammo piles CfgMagazines/CfgAmmo (hands M4A1 was refused before this).
+		if (GetGame().ConfigIsExisting("CfgVehicles " + name))
+			return true;
+		if (GetGame().ConfigIsExisting("CfgWeapons " + name))
+			return true;
+		if (GetGame().ConfigIsExisting("CfgMagazines " + name))
+			return true;
+		return GetGame().ConfigIsExisting("CfgAmmo " + name);
 	}
 
 	protected string Execute(string command)
