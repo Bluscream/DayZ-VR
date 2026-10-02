@@ -109,10 +109,16 @@ detour. Update the entry when you touch the track; keep history in git, not here
   "magazine" selection) is the body-attached third-person model and projects nowhere
   near the drawn gun, so the label uses a fixed offset from the aim point (which follows
   the native view offset) and hides while lowered.
-- Next: native ammo counter quad attached to the right controller grip using the
-  bridge's ammo/chamber values (true "next to the magazine" in VR, works with
-  controller aim), then optional HUD elements as controller/wrist-anchored quads; all
-  behind ini flags. Keep the Enforce label as the no-native-UI fallback.
+- State (audit continuation, 2026-10-02): native right-grip ammo quad is implemented
+  in `common/ammo_display.*` / OpenXR host, with `[hud] ammo_quad` and size/offset/tilt
+  settings. Build, bitmap/arithmetic regressions and XR image-ownership regressions
+  pass. Simulator creates its 170x48 swapchain and runs without XR errors; a tiny
+  controller-adjacent label is visible in the compositor, but its exact text and
+  real-headset readability still need a clearer close-up verification.
+- Next: verify 10+1, empty/low ammo, magazine changes and weapon switching on the
+  native quad; verify physical-controller placement/readability. Keep the Enforce
+  label available as the fallback. Fix bridge freshness/internal-magazine audit
+  findings before treating displayed values as reliable for every weapon.
 
 ## U2. In-game settings UI (edit every mod setting at runtime)
 - State: settings live in `dayz_openxr.ini`; the `[stereo]`/`[gui]`/`[comfort]`-style
@@ -142,22 +148,14 @@ detour. Update the entry when you touch the track; keep history in git, not here
   haptics on fire (needs S2 or a draw-call heuristic); gesture reload; two-handed grip.
 
 ## G1. Game and server control for testing (spawn, teleport, vehicles)
-- State: the local server (`scripts/local-server.sh`, podman, verifySignatures=0) has no
-  command channel beyond BattlEye RCON (kick/ban/say only). The client bridge (S2) can
-  only read the player. Fresh characters spawn with no weapon, so weapon/hand pose,
-  ammo counter and melee features cannot be inspected without spawning gear.
-- Next: a server-side Enforce mod `enforce/DayZVR_Server` (loaded with `-serverMod=`)
-  that polls `$profile:dayzvr/cmd.txt` in the server's profile volume and executes
-  lines: `give <class> [count]` (CreateInInventory on the first player, magazines via
-  `SpawnAttachedMagazine`/`CreateInInventory`), `hands <class>` (weapon into hands with
-  a full magazine), `spawn <class> [x y z]` (CreateObject near the player, vehicles with
-  wheels/battery/spark plug/fuel), `tp <x> <y> <z>` / `tp <preset>` (SetPosition), `heal`,
-  `time <h>`, `weather clear`; host wrapper `scripts/dayz-cmd.sh give M4A1` writing into
-  the podman volume; results logged to `$profile:dayzvr/cmd.log` and shown by
-  `dayz-status.sh`. Then: `scripts/dayz-status.sh` screenshot + `dayz-vr-ctl.py dump-eyes`
-  to inspect weapon/hand model rotations under controller aim.
-- Open: whether the client mod can request this itself (RPC to the server mod) so one
-  `@DayZVR` on both sides suffices; admin-only gating for public use.
+- State: `enforce/DayZVR_Server` and `scripts/dayz-cmd.sh` implement local-server
+  give/hands/spawn/teleport/heal/time/weather commands and result logs. Client
+  `--client raise 1` was exercised successfully during the 2026-10-02 simulator run.
+  Test-server ports are now published only on loopback, and setup preserves the
+  deployed mod/profile and refuses to overwrite a running server.
+- Next: harden command argument limits and empty-hands fallback; use commands to
+  test ammo changes and vehicles. This command channel is for the isolated local
+  test rig; public-server administration/authentication is not implemented.
 
 ## M2. Motion-controlled melee
 - State: idea. DayZ melee is a key press with animation (`MeleeCombat`, `DayZPlayerMeleeFightLogic_LightHeavy`), hit detection server-side from the animation. Controller

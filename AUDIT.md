@@ -99,3 +99,66 @@ Unless marked reproduced, these are static control-flow findings.
 Initial audit committed before repairs. Subsequent entries below and `PROGRESS.md`
 record specific commits, test evidence, and remaining limitations. A finding is not
 closed merely because its source was edited.
+
+### Repairs landed and checked
+
+- `1ee3eda`, `170d778`: B01/A01; self-contained ammo header and bounded ammo arithmetic.
+- `d29f1ba`: R01; blocked game input suspends pending aim corrections.
+- `f21d9ac`: B02; game controller/GUI behavior selected at runtime instead of `_WINDLL`.
+- `62a5018`: R02; only engine-issued projections authorize replay.
+- `6395c5c`: coherent pose publication and explicit tracking invalidation; concurrent
+  pose regression passed ThreadSanitizer in the audit pass.
+- `c5f22f7`: X03–X07/X10; explicit image ownership, complete projection submission,
+  and image-specific success. Injected acquire/wait/release failures pass regressions.
+- `a44679a`: R04; visibility-test presents do not advance XR frames.
+- `793b40f`: X01/X02/X08 and the specific C01 lifecycle/dump-request races; tests cover
+  focus, view validity, and time progression. Broader C02 ownership remains open.
+- `4e2a1e2`: R03; GUI capture selection resets on observed primary resize. Portable
+  sizing regression passes; visual resize behavior still needs live verification.
+- `8d14201`: T01–T03; no shell evaluation of command text, bounded/reaped log followers,
+  and missing/stale/fatal logs fail launch classification.
+- `cd6e290`: additional PBO findings repaired: traversal/symlink destinations, namespace
+  collisions, zero-distance LZSS references, and corrupt/unknown packing fallback.
+- `9263f38`: S03; loopback-published test-server ports. Setup also refuses a running
+  container and preserves deployed mods/profile data. Mock CLI regressions pass.
+- `78d24ad`: gate now runs 25 Python regressions and native AddressSanitizer and
+  UndefinedBehaviorSanitizer tests, including frame policy and GUI sizing.
+
+Full Windows cross-build and the expanded native/tooling gate passed on 2026-10-02.
+The mapped executable was accepted; 208 instruction mutations, 13 truncations and
+empty input were rejected. These checks do not establish headset visuals or true stereo.
+
+### Remaining follow-up findings
+
+- Render diagnostic arrays publish reservation counts before records are complete;
+  snapshots/reset can race producers. `be6c351` preserves a tested synchronized
+  buffer prototype, **not integrated into the runtime**. This defect remains open.
+- The simulator script discovers all `monado-service` processes rather than proving
+  ownership from its saved PID. Do not use its stop action against an unrelated runtime.
+- The mapped-PE test fixture needs explicit freshness/hash verification against the
+  installed executable. A passing old fixture is not evidence for a new game version.
+- Native bridge parsing of fully quoted `-profiles=...` arguments needs correction.
+  Client/server command validation, internal magazine counts and snapshot freshness
+  remain part of S01/S02 follow-up.
+- X09, X11, C02, T04, S01, S02, P01, P02 and H01 remain open. No claim is made that
+  the project-wide audit findings are all repaired.
+
+### Live simulator verification — 06:00–06:03 local time
+
+The deployed build joined the loopback-only local server with simulated WMR hands.
+The full `dayz-status.sh --wait 300` report passed, as did subsequent full reports:
+86–89 FPS after loading, valid HMD/controller poses, no new error/fatal/guard-skip
+entries, and no new script errors. The script bridge reported M4A1, ammo=10,
+chamber=1. The client `raise 1` command returned promptly and raised the weapon.
+
+Inventory was visually present in the compositor; pending mouse x/y were both zero
+while open and immediately after closing. Aim error settled near 0.1 degrees.
+Losing desktop focus cleared hand validity; focusing DayZ restored it. This is
+live evidence for the repaired game-path selection and focus/aim suspension, not
+proof for every physical controller or XR loss condition.
+
+The ammo swapchain initialized at 170x48; no ammo/image/end-frame errors appeared.
+A small controller-adjacent label is visible in `build/logs/ammo-focused-20261002.png`,
+but the screenshot is too small to validate its exact content/readability. Native
+ammo visual verification remains partial. The inventory capture was inspected;
+actual primary-backbuffer downsize was not exercised. Game ini was not modified.
