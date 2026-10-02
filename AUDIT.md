@@ -151,7 +151,9 @@ empty input were rejected. These checks do not establish headset visuals or true
 - Native bridge parsing of fully quoted `-profiles=...` arguments needs correction.
   Client/server command validation, internal magazine counts and snapshot freshness
   remain part of S01/S02 follow-up.
-- X09, X11, C02, T04, S01, S02, P01 and H01 remain open. No claim is made that
+- S02 closed: the Enforce bridge reports `GetInternalMagazineCartridgeCount` when no
+  detachable magazine is attached (verified: Mosin9130 shows 4+1 on the native quad).
+- X09, X11, C02, T04, S01, P01 and H01 remain open. No claim is made that
   the project-wide audit findings are all repaired.
 
 ### Live simulator verification — 06:00–06:03 local time

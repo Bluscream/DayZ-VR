@@ -63,6 +63,8 @@ class DayZVRBridge
 			Magazine magazine = weapon.GetMagazine(muzzle);
 			if (magazine)
 				ammo = magazine.GetAmmoCount();
+			else if (weapon.HasInternalMagazine(muzzle))
+				ammo = weapon.GetInternalMagazineCartridgeCount(muzzle); // bolt-actions, shotguns
 			FPrintln(file, "weapon=" + weapon.GetType());
 			FPrintln(file, "ammo=" + ammo.ToString());
 			FPrintln(file, "chamber=" + BoolText(weapon.IsChamberFull(muzzle)));

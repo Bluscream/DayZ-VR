@@ -155,7 +155,14 @@ class DayZVRServerCmd
 			magazine = words[2];
 		Magazine mag = weapon.SpawnAttachedMagazine(magazine);
 		if (!mag)
-			return "in hands: " + words[1] + " (no magazine spawned)";
+		{
+			int muzzle = weapon.GetCurrentMuzzle();
+			if (!weapon.HasInternalMagazine(muzzle))
+				return "in hands: " + words[1] + " (no magazine spawned)";
+			// Internal magazine (bolt-actions, shotguns): fill it, "rounds" cannot be set.
+			weapon.FillInnerMagazine("", WeaponWithAmmoFlags.CHAMBER);
+			return "in hands: " + words[1] + " with internal magazine (" + weapon.GetInternalMagazineCartridgeCount(muzzle).ToString() + " rounds)";
+		}
 		if (words.Count() > 3)
 			mag.ServerSetAmmoCount(words[3].ToInt());
 		return "in hands: " + words[1] + " with " + mag.GetType() + " (" + mag.GetAmmoCount().ToString() + " rounds)";
