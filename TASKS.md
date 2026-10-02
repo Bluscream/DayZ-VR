@@ -345,7 +345,17 @@ detour. Update the entry when you touch the track; keep history in git, not here
 ## H1. Code health
 - State: `common/dayz_runtime_probe.cpp` is ~3400 lines (limit is far lower); new work
   goes into separate files (`dayz_patches`, `dayz_hotkeys`, `hmd_aim_loop`, `comfort`).
-- Next: carve the GUI cursor/quad code and the HUD experiments out of the probe.
+- State (2026-10-02 10:00): probe is 3780 lines. Assessment: the HUD layout/safe-area
+  globals (`g_hud*`) are referenced from ~100 lines spread over hooks, composite,
+  capture sizing and config; the GUI cursor block (`MapGuiClientPoint` ..
+  `InstallGuiMouseApiHook`, ~400 lines) shares `g_gameWindow`, the cursor API
+  trampolines and `IsGuiCursorModeActive`. Both carve-outs need a session with the
+  headset (or at least a GUI-cursor path on the sim, which needs a menu open) as the
+  gate; the sim regression only proves in-world rendering. New code keeps going to
+  separate files (today: shot_detector, regression-run, DayZVRDashboard).
+- Next: carve the GUI cursor code first (cleanest boundary: a `gui_cursor` module
+  owning the virtual cursor state and the GetCursorPos/Info hooks, with the probe
+  passing the window handle and the mode predicate), then the HUD layout block.
 
 ## T1. Test rig and tooling
 - State: `scripts/xr-sim.sh` (Monado sim: SIM_ROTATE, SIM_CONTROLLERS=simple|wmr|ml2),
@@ -374,8 +384,9 @@ detour. Update the entry when you touch the track; keep history in git, not here
   yaw gain swings between -200 and -770 counts/rad before settling near -165 (pitch
   -161). After that both aim modes hold the error at 0.1 deg. The headset session
   should check whether the same warm-up shows at 67+ fps.
-- Next: nightly-style run from a timer once the headset path exists; a `--no-sim`
-  mode for the real headset that skips the Monado launch.
+- State (10:00): `--no-sim` added (launches without the Monado runtime flag; untested
+  until the headset session).
+- Next: nightly-style run from a timer once the headset path exists.
 
 
 ## Q1. Native VR quality target and interaction roadmap

@@ -8,6 +8,7 @@
 #   scripts/regression-run.sh                full run (about 6 minutes)
 #   scripts/regression-run.sh --skip-build   reuse the current build and deployment
 #   scripts/regression-run.sh --keep         leave DayZ running at the end
+#   scripts/regression-run.sh --no-sim       real headset: launch without the Monado sim runtime
 #
 # Needs the sim (scripts/xr-sim.sh start) and a set-up local server
 # (scripts/local-server.sh setup). Exit status 0 only when every step passed.
@@ -27,10 +28,12 @@ in_world_seconds=300
 
 skip_build=0
 keep_running=0
+use_sim=1
 for arg in "$@"; do
   case "$arg" in
     --skip-build) skip_build=1 ;;
     --keep) keep_running=1 ;;
+    --no-sim) use_sim=0 ;;
     -h | --help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'unknown argument: %s\n' "$arg" >&2; exit 2 ;;
   esac
@@ -75,8 +78,12 @@ wait_server_ready() {
 # Invoked through step().
 # shellcheck disable=SC2329
 launch_client() {
+  local -a sim_flag=()
+  if [[ $use_sim -eq 1 ]]; then
+    sim_flag=(--sim)
+  fi
   (
-    setsid "$script_dir/run-dayz-direct.sh" --sim -- -connect=127.0.0.1 -port=2302 "-mod=@DayZVR" \
+    setsid "$script_dir/run-dayz-direct.sh" "${sim_flag[@]}" -- -connect=127.0.0.1 -port=2302 "-mod=@DayZVR" \
       >"$run_dir/launch.log" 2>&1 &
   )
   sleep 1
