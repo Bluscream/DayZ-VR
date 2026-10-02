@@ -76,6 +76,9 @@ namespace dayz::input_hooks
 
         std::atomic_bool g_active{};
         std::atomic_bool g_directAim{};
+        // [input] mouse_look=false: the aim axis pairs report only the VR rate; the
+        // engine's own mouse/stick aim deltas never reach the camera.
+        std::atomic_bool g_mouseLook{true};
         std::uintptr_t g_moduleBase{};
         std::atomic_uint64_t g_frames{};
         std::atomic_uint64_t g_overrides{};
@@ -302,15 +305,22 @@ namespace dayz::input_hooks
                 return engine;
             const int a = static_cast<int>(idA);
             const int b = static_cast<int>(idB);
+            // The consumer passes the pairs in either order; the sign follows the order.
             float extra = 0.0f;
             if (g_aimRightId >= 0 && a == g_aimRightId && b == g_aimLeftId)
                 extra = g_frameYawRate;
+            else if (g_aimRightId >= 0 && a == g_aimLeftId && b == g_aimRightId)
+                extra = -g_frameYawRate;
             else if (g_aimDownId >= 0 && a == g_aimDownId && b == g_aimUpId)
                 extra = g_framePitchRate;
+            else if (g_aimDownId >= 0 && a == g_aimUpId && b == g_aimDownId)
+                extra = -g_framePitchRate;
             else
                 return engine;
             if (extra != 0.0f)
                 g_overrides.fetch_add(1, std::memory_order_relaxed);
+            if (!g_mouseLook.load(std::memory_order_relaxed))
+                return extra;
             return engine + extra;
         }
 
@@ -344,6 +354,7 @@ namespace dayz::input_hooks
             return;
         }
         g_directAim.store(ReadBoolean(iniPath, L"direct_aim", false));
+        g_mouseLook.store(ReadBoolean(iniPath, L"mouse_look", true));
         g_aimYawSign = ReadFloat(iniPath, L"aim_yaw_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
         g_aimPitchSign = ReadFloat(iniPath, L"aim_pitch_sign", 1.0f) < 0.0f ? -1.0f : 1.0f;
         g_moduleBase = moduleBase;
@@ -370,7 +381,8 @@ namespace dayz::input_hooks
         g_active.store(true);
         std::ostringstream message;
         message << "Direct input active: engine action getters hooked (direct_aim="
-                << (g_directAim.load() ? "on" : "off") << ", aim signs " << g_aimYawSign << '/' << g_aimPitchSign << ')';
+                << (g_directAim.load() ? "on" : "off") << ", mouse_look="
+                << (g_mouseLook.load() ? "on" : "off") << ", aim signs " << g_aimYawSign << '/' << g_aimPitchSign << ')';
         logging::Info(message.str());
     }
 

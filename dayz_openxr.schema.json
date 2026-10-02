@@ -950,6 +950,13 @@
           "default": "true",
           "restart": true
         },
+        "mouse_look": {
+          "title": "Engine mouse look",
+          "description": "Off: the aim axis reports only the VR turn (stick, direct head aim) and the engine's own mouse/gamepad aim deltas never rotate the camera.",
+          "type": "bool",
+          "default": "false",
+          "restart": true
+        },
         "direct_aim": {
           "title": "Direct aim",
           "description": "Head and stick turning as exact per-frame aim changes through the engine's aim axis instead of mouse counts; replaces the closed loop while on.",
