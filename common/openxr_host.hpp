@@ -120,6 +120,10 @@ private:
     void PublishVehicleSteering() noexcept;
     void UpdatePhysicalStance(XrTime displayTime) noexcept;
     void UpdateFireHaptics() noexcept;
+    // Reads every [hud]/[melee]/[vehicle]/[stance]/[haptics] live tunable from the ini
+    // and registers the table with the runtime probe (one row = ini key + default +
+    // range + protocol entry).
+    void LoadHostTunables() noexcept;
     // Pulses one controller (0 left, 1 right). seconds/amplitude clamped; false when
     // haptics are unavailable (no actions, session not focused, runtime error).
     bool PulseHaptic(int hand, float seconds, float amplitude) noexcept;

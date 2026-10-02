@@ -19,7 +19,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <sstream>
+#include <string>
+#include <tuple>
 
 namespace
 {
@@ -356,6 +359,80 @@ bool OpenXrHost::CreateSession()
     sessionInfo.next = &binding;
     sessionInfo.systemId = systemId_;
     return Check(xrCreateSession(instance_, &sessionInfo, &session_), "xrCreateSession");
+}
+
+namespace
+{
+    // One row per host-owned live tunable: the ini key ("section.key"), its default
+    // and range. The ini read, the clamp and the debug-protocol table all come from
+    // here, so a bound can no longer disagree with itself. Booleans are 0/1 floats.
+    struct HostTunableSpec
+    {
+        const char* name;
+        float fallback;
+        float minimum;
+        float maximum;
+        bool boolean;
+    };
+
+    float ReadTunable(const HostTunableSpec& spec, float current) noexcept
+    {
+        const std::string name(spec.name);
+        const auto dot = name.find('.');
+        if (dot == std::string::npos)
+            return current;
+        const std::wstring section(name.begin(), name.begin() + static_cast<std::ptrdiff_t>(dot));
+        const std::wstring key(name.begin() + static_cast<std::ptrdiff_t>(dot) + 1, name.end());
+        if (spec.boolean)
+            return ReadBoolean(section.c_str(), key.c_str(), spec.fallback >= 0.5f) ? 1.0f : 0.0f;
+        return (std::clamp)(ReadFloat(section.c_str(), key.c_str(), spec.fallback), spec.minimum, spec.maximum);
+    }
+}
+
+void OpenXrHost::LoadHostTunables() noexcept
+{
+    struct Row
+    {
+        HostTunableSpec spec;
+        std::atomic<float>* value;
+    };
+    const Row rows[]{
+        {{"hud.ammo_quad", 1.0f, 0.0f, 1.0f, true}, &ammoQuadVisible_},
+        {{"hud.ammo_quad_width_meters", 0.07f, 0.01f, 0.5f, false}, &ammoQuadWidthMeters_},
+        {{"hud.ammo_quad_offset_x", 0.0f, -0.5f, 0.5f, false}, &ammoQuadOffsetX_},
+        {{"hud.ammo_quad_offset_y", 0.04f, -0.5f, 0.5f, false}, &ammoQuadOffsetY_},
+        {{"hud.ammo_quad_offset_z", -0.02f, -0.5f, 0.5f, false}, &ammoQuadOffsetZ_},
+        {{"hud.ammo_quad_tilt_degrees", 40.0f, -180.0f, 180.0f, false}, &ammoQuadTiltDegrees_},
+        {{"melee.motion_swing", 0.0f, 0.0f, 1.0f, true}, &meleeMotionSwing_},
+        {{"melee.light_speed", 1.6f, 0.2f, 20.0f, false}, &meleeLightSpeed_},
+        {{"melee.heavy_speed", 3.2f, 0.2f, 20.0f, false}, &meleeHeavySpeed_},
+        {{"melee.cooldown_seconds", 0.5f, 0.0f, 5.0f, false}, &meleeCooldownSeconds_},
+        {{"melee.heavy_hold_seconds", 0.45f, 0.05f, 2.0f, false}, &meleeHeavyHoldSeconds_},
+        {{"vehicle.steering", 1.0f, 0.0f, 1.0f, true}, &vehicleSteering_},
+        {{"vehicle.wheel_max_degrees", 90.0f, 10.0f, 180.0f, false}, &vehicleWheelMaxDegrees_},
+        {{"vehicle.deadzone", 0.05f, 0.0f, 0.9f, false}, &vehicleDeadzone_},
+        {{"vehicle.invert", 0.0f, 0.0f, 1.0f, true}, &vehicleInvert_},
+        {{"vehicle.require_grip", 1.0f, 0.0f, 1.0f, true}, &vehicleRequireGrip_},
+        {{"stance.physical", 0.0f, 0.0f, 1.0f, true}, &stancePhysical_},
+        {{"stance.crouch_drop", 0.35f, 0.05f, 1.5f, false}, &stanceCrouchDrop_},
+        {{"stance.prone_drop", 0.85f, 0.1f, 2.0f, false}, &stanceProneDrop_},
+        {{"stance.hysteresis", 0.08f, 0.0f, 0.5f, false}, &stanceHysteresis_},
+        {{"haptics.fire", 1.0f, 0.0f, 1.0f, true}, &hapticsFire_},
+        {{"haptics.fire_seconds", 0.08f, 0.01f, 1.0f, false}, &hapticsFireSeconds_},
+        {{"haptics.fire_amplitude", 0.8f, 0.0f, 1.0f, false}, &hapticsFireAmplitude_},
+    };
+    static_assert(std::size(rows) == std::tuple_size<decltype(hostTunables_)>::value,
+        "hostTunables_ must hold exactly one entry per row");
+    std::size_t index = 0;
+    for (const Row& row : rows)
+    {
+        // hud.ammo_quad also decides whether the swapchain exists (needs a restart);
+        // the ini value was read into ammoQuadEnabled_ already, keep them in step.
+        if (std::strcmp(row.spec.name, "hud.ammo_quad") != 0)
+            row.value->store(ReadTunable(row.spec, row.value->load()), std::memory_order_relaxed);
+        hostTunables_[index++] = {row.spec.name, row.value, row.spec.minimum, row.spec.maximum};
+    }
+    dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
 }
 
 bool OpenXrHost::CreateControllerActions()
@@ -887,56 +964,8 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     controllerAxesEnabled_ = ReadBoolean(L"controls", L"show_controller_axes", true);
     ammoQuadEnabled_ = ReadBoolean(L"hud", L"ammo_quad", true);
     ammoQuadVisible_ = ammoQuadEnabled_ ? 1.0f : 0.0f;
-    ammoQuadWidthMeters_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_width_meters", 0.07f), 0.01f, 0.5f);
-    ammoQuadOffsetX_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_x", 0.0f), -0.5f, 0.5f);
-    ammoQuadOffsetY_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_y", 0.04f), -0.5f, 0.5f);
-    ammoQuadOffsetZ_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_z", -0.02f), -0.5f, 0.5f);
-    ammoQuadTiltDegrees_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_tilt_degrees", 40.0f), -180.0f, 180.0f);
     ammoQuadPixelHeight_ = (std::clamp)(ReadUnsigned(L"hud", L"ammo_quad_pixel_height", 48), 8u, 256u);
-    meleeMotionSwing_ = ReadBoolean(L"melee", L"motion_swing", false) ? 1.0f : 0.0f;
-    meleeLightSpeed_ = (std::clamp)(ReadFloat(L"melee", L"light_speed", 1.6f), 0.2f, 20.0f);
-    meleeHeavySpeed_ = (std::clamp)(ReadFloat(L"melee", L"heavy_speed", 3.2f), 0.2f, 20.0f);
-    meleeCooldownSeconds_ = (std::clamp)(ReadFloat(L"melee", L"cooldown_seconds", 0.5f), 0.0f, 5.0f);
-    meleeHeavyHoldSeconds_ = (std::clamp)(ReadFloat(L"melee", L"heavy_hold_seconds", 0.45f), 0.05f, 2.0f);
-    vehicleSteering_ = ReadBoolean(L"vehicle", L"steering", true) ? 1.0f : 0.0f;
-    vehicleWheelMaxDegrees_ = (std::clamp)(ReadFloat(L"vehicle", L"wheel_max_degrees", 90.0f), 10.0f, 180.0f);
-    vehicleDeadzone_ = (std::clamp)(ReadFloat(L"vehicle", L"deadzone", 0.05f), 0.0f, 0.9f);
-    vehicleInvert_ = ReadBoolean(L"vehicle", L"invert", false) ? 1.0f : 0.0f;
-    vehicleRequireGrip_ = ReadBoolean(L"vehicle", L"require_grip", true) ? 1.0f : 0.0f;
-    stancePhysical_ = ReadBoolean(L"stance", L"physical", false) ? 1.0f : 0.0f;
-    stanceCrouchDrop_ = (std::clamp)(ReadFloat(L"stance", L"crouch_drop", 0.35f), 0.05f, 1.5f);
-    stanceProneDrop_ = (std::clamp)(ReadFloat(L"stance", L"prone_drop", 0.85f), 0.1f, 2.0f);
-    stanceHysteresis_ = (std::clamp)(ReadFloat(L"stance", L"hysteresis", 0.08f), 0.0f, 0.5f);
-    hapticsFire_ = ReadBoolean(L"haptics", L"fire", true) ? 1.0f : 0.0f;
-    hapticsFireSeconds_ = (std::clamp)(ReadFloat(L"haptics", L"fire_seconds", 0.08f), 0.01f, 1.0f);
-    hapticsFireAmplitude_ = (std::clamp)(ReadFloat(L"haptics", L"fire_amplitude", 0.8f), 0.0f, 1.0f);
-    // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
-    hostTunables_ = {{
-        {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
-        {"hud.ammo_quad_width_meters", &ammoQuadWidthMeters_, 0.01f, 0.5f},
-        {"hud.ammo_quad_offset_x", &ammoQuadOffsetX_, -0.5f, 0.5f},
-        {"hud.ammo_quad_offset_y", &ammoQuadOffsetY_, -0.5f, 0.5f},
-        {"hud.ammo_quad_offset_z", &ammoQuadOffsetZ_, -0.5f, 0.5f},
-        {"hud.ammo_quad_tilt_degrees", &ammoQuadTiltDegrees_, -180.0f, 180.0f},
-        {"melee.motion_swing", &meleeMotionSwing_, 0.0f, 1.0f},
-        {"melee.light_speed", &meleeLightSpeed_, 0.2f, 20.0f},
-        {"melee.heavy_speed", &meleeHeavySpeed_, 0.2f, 20.0f},
-        {"melee.cooldown_seconds", &meleeCooldownSeconds_, 0.0f, 5.0f},
-        {"melee.heavy_hold_seconds", &meleeHeavyHoldSeconds_, 0.05f, 2.0f},
-        {"vehicle.steering", &vehicleSteering_, 0.0f, 1.0f},
-        {"vehicle.wheel_max_degrees", &vehicleWheelMaxDegrees_, 10.0f, 180.0f},
-        {"vehicle.deadzone", &vehicleDeadzone_, 0.0f, 0.9f},
-        {"vehicle.invert", &vehicleInvert_, 0.0f, 1.0f},
-        {"vehicle.require_grip", &vehicleRequireGrip_, 0.0f, 1.0f},
-        {"stance.physical", &stancePhysical_, 0.0f, 1.0f},
-        {"stance.crouch_drop", &stanceCrouchDrop_, 0.05f, 1.5f},
-        {"stance.prone_drop", &stanceProneDrop_, 0.1f, 2.0f},
-        {"stance.hysteresis", &stanceHysteresis_, 0.0f, 0.5f},
-        {"haptics.fire", &hapticsFire_, 0.0f, 1.0f},
-        {"haptics.fire_seconds", &hapticsFireSeconds_, 0.01f, 1.0f},
-        {"haptics.fire_amplitude", &hapticsFireAmplitude_, 0.0f, 1.0f},
-    }};
-    dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
+    LoadHostTunables();
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
     guiRayEnabled_ = ReadBoolean(L"controls", L"show_gui_ray", true) &&
         controllerInputEnabled_;

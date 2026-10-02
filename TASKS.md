@@ -153,6 +153,12 @@ detour. Update the entry when you touch the track; keep history in git, not here
   (`runtime_probe::RegisterTunables`, atomics written by the debug thread, read per
   frame); `[hud] ammo_quad*` is the first user. The ini clamps and the table bounds
   are still written twice (host config read + table row).
+- State (09:15): host tunables come from one table (`LoadHostTunables`: ini key
+  `section.key`, default, range, boolean flag); the ini read, the clamp and the
+  protocol row share it; `static_assert` keeps `hostTunables_` sized to the rows.
+  23 entries (`hud.* melee.* vehicle.* stance.* haptics.*`) listed and range-checked
+  through `dayz-vr-ctl.py` on the sim. The render-path tunables (`[stereo]`/`[gui]`/
+  `[comfort]`) still live in the probe's own table.
 - Next: (1) make as many settings as possible runtime tunables (register every ini
   key through one table with type/range/"needs restart" flag, so the ini parser, the
   debug protocol `tunables`, hotkey toggles and the UI all share it; fold the host's
@@ -285,8 +291,9 @@ detour. Update the entry when you touch the track; keep history in git, not here
   (both through `ActionManagerClient.PerformActionStart`, so the server executes
   them). B stays the handbrake. Client test verbs `engine|lights|horn`. Sim: engine
   1 -> rpm 800 -> 0 verified; lights/horn actions accepted (`lights=` added to
-  game.txt for the readback, unverified until the next launch).
-- Next: (5) verify `lights=` flips and the horn is audible on a real client;
+  game.txt for the readback). 09:16: `lights=` verified 0 -> 1 -> 0 on the sim, so
+  the server executes the action-manager path; the horn uses the same path.
+- Next: (5) hear the horn on a real client;
   (6) seated recenter / view lock to vehicle yaw; (7) a native fire hook to remove
   the 100 ms haptic latency.
 
