@@ -227,10 +227,21 @@ detour. Update the entry when you touch the track; keep history in git, not here
   and `modded class CarScript.OnUpdate` calls `SetSteering` while the local player
   drives; game.txt gets `steering=`, `speed=`, `driver=` once in a car. Untested until
   entry works.
-- Next (entry): read `HumanCommandVehicle`/`CrewGetIn` flow on the client (the netsync
-  may need the command to start on the client first and the server to confirm), or
-  drive the vanilla action through the real input path (sim controller "F" via the
-  host's RGRAB mapping while a GUI-less cursor target exists). Then test `steer`.
+- State (08:06): **entry and script steering work.** Vehicle commands only take effect
+  when `StartCommand_Vehicle` is called from the player's `CommandHandler` tick
+  (vanilla's DEVELOPER-only `TryGetInVehicleDebug` does the same), so both mods now
+  park the transport in a modded `PlayerBase` field and start the command on the next
+  tick; `--client enter` + server `enter` seat the player (`in_vehicle=1 driver=1`).
+  `--client steer 0.6` holds `GetSteering()=0.6` for as long as the override is set
+  (speed went negative: the car rolled, wheels present) and `steer off` returns it to 0,
+  so `CarScript.OnUpdate` → `SetSteering` beats the engine's keyboard steering.
+  Analogue VR steering can therefore be done in script, fed from vr.txt.
+- Next: (1) native: compute a steering value from the controllers (right grip roll
+  angle, or two-hand "wheel" angle between grips) and publish `steer=` in vr.txt;
+  (2) Enforce: `DayZVRSteering` reads `steer` from the bridge while the local player
+  drives (override off when the value is stale); (3) throttle/brake on triggers via
+  `SetThrottle`/`SetBrake` the same way (both are script natives); (4) real-headset
+  tuning of the wheel angle range and dead zone.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash

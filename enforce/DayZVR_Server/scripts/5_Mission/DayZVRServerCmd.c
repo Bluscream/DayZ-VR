@@ -294,12 +294,8 @@ class DayZVRServerCmd
 			return "no vehicle within 15 m";
 		if (vehicle.CrewMember(0))
 			return "driver seat of " + vehicle.GetType() + " is taken";
-		int seat = vehicle.GetSeatAnimationType(0);
-		HumanCommandVehicle command = player.StartCommand_Vehicle(vehicle, 0, seat);
-		if (!command)
-			return "StartCommand_Vehicle failed for " + vehicle.GetType();
-		command.SetVehicleType(vehicle.GetAnimInstance());
-		return "entering driver seat of " + vehicle.GetType() + " (seat anim " + seat.ToString() + ")";
+		player.m_DayZVRServerGetIn = vehicle;
+		return "vehicle command queued for " + vehicle.GetType() + " (driver seat, next CommandHandler tick)";
 	}
 
 	protected string Heal(PlayerBase player)

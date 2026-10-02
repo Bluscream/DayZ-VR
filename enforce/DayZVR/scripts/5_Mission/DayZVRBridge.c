@@ -237,8 +237,11 @@ class DayZVRBridge
 			ActionTarget target = new ActionTarget(nearest, null, i, hit, 0);
 			if (action.Can(player, target, null))
 			{
-				manager.PerformActionStart(action, target, null);
-				return "entering " + nearest.GetType() + " via component " + i.ToString();
+				// PerformActionStart from here never produced a visible entry (the request
+				// needs the real input path); start the command the way vanilla's
+				// DEVELOPER debug does and let the server command "enter" do its half.
+				player.m_DayZVRGetIn = nearest;
+				return "vehicle command queued (action condition ok, component " + i.ToString() + ") on " + nearest.GetType() + "; run the server 'enter' too";
 			}
 			// Spell out the vanilla ActionCondition so the failing check is visible.
 			array<string> selections = new array<string>();
@@ -258,12 +261,8 @@ class DayZVRBridge
 		// The vanilla action's Start() runs StartCommand_Vehicle on both machines; when
 		// the action cannot be requested (no cursor target in the test rig), start the
 		// command locally and let the server command "enter" do its half.
-		int seat = nearest.GetSeatAnimationType(0);
-		HumanCommandVehicle command = player.StartCommand_Vehicle(nearest, 0, seat);
-		if (!command)
-			return "cannot get in " + nearest.GetType() + " at " + best.ToString() + " m; driver components tried:" + tried + "; local StartCommand_Vehicle failed";
-		command.SetVehicleType(nearest.GetAnimInstance());
-		return "local vehicle command started for " + nearest.GetType() + " (action refused:" + tried + "); run the server 'enter' too";
+		player.m_DayZVRGetIn = nearest;
+		return "vehicle command queued for the next CommandHandler tick on " + nearest.GetType() + " (action refused:" + tried + "); run the server 'enter' too";
 	}
 
 	protected static string BoolText(bool value)

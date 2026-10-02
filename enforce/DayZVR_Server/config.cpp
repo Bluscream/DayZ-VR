@@ -25,6 +25,11 @@ class CfgMods
 
 		class defs
 		{
+			class worldScriptModule
+			{
+				value = "";
+				files[] = {"DayZVR_Server/scripts/4_World"};
+			};
 			class missionScriptModule
 			{
 				value = "";

@@ -17,6 +17,28 @@ class DayZVRSteering
 	}
 }
 
+// Vehicle commands only take effect when started from the player's CommandHandler
+// tick (vanilla's DEVELOPER-only TryGetInVehicleDebug does exactly this), so the
+// bridge command just parks the transport here and the next tick starts it.
+modded class PlayerBase
+{
+	Transport m_DayZVRGetIn;
+
+	override void CommandHandler(float pDt, int pCurrentCommandID, bool pCurrentCommandFinished)
+	{
+		super.CommandHandler(pDt, pCurrentCommandID, pCurrentCommandFinished);
+		if (!m_DayZVRGetIn)
+			return;
+		Transport transport = m_DayZVRGetIn;
+		m_DayZVRGetIn = null;
+		int seat = transport.GetSeatAnimationType(0);
+		HumanCommandVehicle command = StartCommand_Vehicle(transport, 0, seat);
+		if (command)
+			command.SetVehicleType(transport.GetAnimInstance());
+		Print("[DayZVR] CommandHandler StartCommand_Vehicle " + transport.GetType() + " -> " + (command != null).ToString());
+	}
+}
+
 modded class CarScript
 {
 	override void OnUpdate(float dt)
