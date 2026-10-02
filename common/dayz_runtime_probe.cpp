@@ -1,3 +1,4 @@
+#include "config_number.hpp"
 #include "dayz_runtime_probe.hpp"
 #include "dayz_build_profiles.hpp"
 #include "dayz_build_checks.hpp"
@@ -693,9 +694,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         const std::wstring path = ConfigurationFile();
         GetPrivateProfileStringW(section, key, fallbackText, value,
             static_cast<DWORD>(std::size(value)), path.c_str());
-        wchar_t* end{};
-        const float parsed = std::wcstof(value, &end);
-        return end != value && std::isfinite(parsed) ? parsed : fallback;
+        return dayz::config_number::ParseFloat(value, fallback);
     }
 
     std::wstring ReadString(const wchar_t* section, const wchar_t* key,

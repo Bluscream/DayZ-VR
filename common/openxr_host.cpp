@@ -1,3 +1,4 @@
+#include "config_number.hpp"
 #include "openxr_host.hpp"
 
 #include "ammo_display.hpp"
@@ -69,9 +70,7 @@ namespace
         wchar_t value[32]{};
         GetPrivateProfileStringW(section, key, fallbackText, value,
             static_cast<DWORD>(std::size(value)), ConfigurationPath().c_str());
-        wchar_t* end{};
-        const float parsed = std::wcstof(value, &end);
-        return end != value && std::isfinite(parsed) ? parsed : fallback;
+        return dayz::config_number::ParseFloat(value, fallback);
     }
 
     std::uint32_t ReadUnsigned(const wchar_t* section, const wchar_t* key,

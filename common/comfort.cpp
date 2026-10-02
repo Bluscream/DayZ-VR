@@ -1,3 +1,4 @@
+#include "config_number.hpp"
 #include "comfort.hpp"
 
 #include "stereo_state.hpp"
@@ -35,9 +36,7 @@ namespace dayz::comfort
             wchar_t value[32]{};
             GetPrivateProfileStringW(L"comfort", key, fallbackText, value,
                 static_cast<DWORD>(std::size(value)), ini);
-            wchar_t* end{};
-            const float parsed = std::wcstof(value, &end);
-            return end != value ? parsed : fallback;
+            return dayz::config_number::ParseFloat(value, fallback);
         }
     }
 

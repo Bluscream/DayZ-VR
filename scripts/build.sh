@@ -93,6 +93,7 @@ step_test() {
   mkdir -p "$log_dir"
   python3 -B -m unittest discover -s "$project_dir/tests" -p 'test_*.py' -v 2>&1 | tee "$log_dir/test-tools.log"
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -fsanitize=address,undefined -fno-omit-frame-pointer -g'
+  run_in_container "g++ $gpp_flags tests/config_number_test.cpp -o build/config_number_test && ./build/config_number_test" 2>&1 | tee "$log_dir/test-config-number.log"
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
   run_in_container "g++ $gpp_flags tests/ammo_display_test.cpp common/ammo_display.cpp -o build/ammo_display_test && ./build/ammo_display_test" 2>&1 | tee "$log_dir/test-ammo-display.log"
