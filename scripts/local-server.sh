@@ -87,12 +87,19 @@ cmd_start() {
   if podman container exists "$container_name"; then
     podman rm -f "$container_name" >/dev/null
   fi
+  # The test-command mod (enforce/DayZVR_Server, deployed by build.sh --deploy) lets
+  # scripts/dayz-cmd.sh spawn gear/vehicles and teleport the connected player.
+  local server_mods=""
+  if [[ -d "$server_dir/@DayZVR_Server" ]]; then
+    server_mods="-serverMod=@DayZVR_Server"
+    say "loading server mod @DayZVR_Server"
+  fi
   say "starting $container_name on UDP $port (log: scripts/local-server.sh logs)"
   # --userns=keep-id keeps the host uid so the image's 'container' user (uid 1000)
   # owns the mounted files; host networking so the client reaches 127.0.0.1:$port.
   podman run -d --name "$container_name" --network host --userns=keep-id \
     -v "$server_dir:/home/container:Z" -w /home/container --entrypoint /bin/bash "$image" \
-    -c "./DayZServer -config=serverDZ.cfg -port=$port -profiles=serverprofile -BEpath=battleye -dologs -adminlog -limitFPS=60" \
+    -c "./DayZServer -config=serverDZ.cfg -port=$port -profiles=serverprofile -BEpath=battleye -dologs -adminlog -limitFPS=60 $server_mods" \
     >/dev/null
   cmd_status
 }
@@ -119,6 +126,7 @@ case "${1:-}" in
   setup) cmd_setup ;;
   start) cmd_start ;;
   stop) cmd_stop ;;
+  restart) cmd_stop; cmd_start ;;
   status) cmd_status ;;
   logs) podman logs -f "$container_name" ;;
   -h | --help | "") sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; [[ -n "${1:-}" ]] || exit 2 ;;

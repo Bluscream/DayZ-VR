@@ -95,6 +95,7 @@ step_test() {
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
   python3 scripts/build-pbo.py enforce/DayZVR "build/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
+  python3 scripts/build-pbo.py enforce/DayZVR_Server "build/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
     run_in_container "g++ $gpp_flags -Icommon tests/build_checks.cpp -o build/build_checks && ./build/build_checks build/dayz-image.bin" 2>&1 | tee "$log_dir/test-build-checks.log"
   else
@@ -163,6 +164,11 @@ step_deploy() {
     mkdir -p "$dayz_dir/@DayZVR/addons"
     cp -f "$build_dir/@DayZVR/addons/DayZVR.pbo" "$dayz_dir/@DayZVR/addons/DayZVR.pbo"
     say "deployed the @DayZVR script bridge mod (launch with -mod=@DayZVR)"
+  fi
+  if [[ -f "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" && -d "$build_dir/local-server" ]]; then
+    mkdir -p "$build_dir/local-server/@DayZVR_Server/addons"
+    cp -f "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" "$build_dir/local-server/@DayZVR_Server/addons/DayZVR_Server.pbo"
+    say "deployed the @DayZVR_Server test-command mod to the local server (restart it: scripts/local-server.sh restart)"
   fi
   say "deployed; previous DLLs saved in $backup"
 }

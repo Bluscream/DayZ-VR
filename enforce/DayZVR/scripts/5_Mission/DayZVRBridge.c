@@ -43,6 +43,7 @@ class DayZVRBridge
 		m_Frame++;
 		WriteGame();
 		ReadVr();
+		RunClientCommands();
 	}
 
 	protected void WriteGame()
@@ -102,6 +103,65 @@ class DayZVRBridge
 			m_Vr.Set(line.Substring(0, separator), line.Substring(separator + 1, line.Length() - separator - 1));
 		}
 		CloseFile(file);
+	}
+
+	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in
+	// $profile:dayzvr/client_cmd.txt, results appended to client_cmd.log.
+	//   raise <0|1>        hold the weapon raised (OverrideRaise ENABLED/DISABLED)
+	//   print <text>       echo into script.log
+	protected void RunClientCommands()
+	{
+		if (!FileExist(DIR + "client_cmd.txt"))
+			return;
+		array<string> lines = new array<string>();
+		FileHandle file = OpenFile(DIR + "client_cmd.txt", FileMode.READ);
+		if (!file)
+			return;
+		string line;
+		while (FGets(file, line) >= 0)
+		{
+			line = line.Trim();
+			if (line != "")
+				lines.Insert(line);
+		}
+		CloseFile(file);
+		DeleteFile(DIR + "client_cmd.txt");
+		FileHandle log = OpenFile(DIR + "client_cmd.log", FileMode.APPEND);
+		foreach (string command : lines)
+		{
+			string result = ExecuteClientCommand(command);
+			Print("[DayZVR] client cmd: " + command + " -> " + result);
+			if (log)
+				FPrintln(log, command + " -> " + result);
+		}
+		if (log)
+			CloseFile(log);
+	}
+
+	protected string ExecuteClientCommand(string command)
+	{
+		array<string> words = new array<string>();
+		command.Split(" ", words);
+		if (words.Count() == 0)
+			return "empty";
+		PlayerBase player = PlayerBase.Cast(GetGame().GetPlayer());
+		if (!player)
+			return "no player";
+		HumanInputController hic = player.GetInputController();
+		string verb = words[0];
+		verb.ToLower();
+		if (verb == "raise" && words.Count() > 1)
+		{
+			bool on = words[1] == "1";
+			if (on)
+				hic.OverrideRaise(HumanInputControllerOverrideType.ENABLED, true);
+			else
+				hic.OverrideRaise(HumanInputControllerOverrideType.DISABLED, false);
+			return "raise " + words[1];
+		}
+		if (verb == "print")
+			return "printed";
+		return "unknown client command";
 	}
 
 	protected static string BoolText(bool value)

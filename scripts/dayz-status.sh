@@ -64,12 +64,22 @@ dayz_pids() { pgrep -f 'DayZ_x6[4]\.exe' || true; }
 
 if (( wait_seconds > 0 )); then
   say "waiting up to ${wait_seconds}s for in-world, fatal exception or exit"
-  # In-world is signalled by the first alternating-eye verification (needs a game camera);
-  # a fatal exception by the crash reporter. Bounded by timeout, no loop. tail -F keeps
-  # retrying until the log exists (the launch script moves the previous one away).
+  # Two bounded stages, no loops. Stage 1: the proxy's first log line (the game process
+  # is up; DayZ creates its script_*.log at about the same time). Stage 2: follow the
+  # proxy log and the newest DayZ script log together until in-world (first
+  # alternating-eye verification), a fatal exception, or a script compile error, which
+  # otherwise sits in a modal "Compile error" dialog that nothing else reports.
+  stage1=$(( wait_seconds < 90 ? wait_seconds : 90 ))
+  timeout "$stage1" bash -c "tail -n +$((since + 1)) -F '$log' 2>/dev/null | head -n 1" >/dev/null || true
+  script_log="$(find "$profile_dir" -maxdepth 1 -name 'script_*.log' -newer "$offset_file" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+  extra_log=""
+  if [[ -n "$script_log" ]]; then
+    row "following" "$(basename "$script_log")"
+    extra_log="'$script_log'"
+  fi
   timeout "$wait_seconds" bash -c \
-    "tail -n +$((since + 1)) -F '$log' 2>/dev/null | grep -m1 'Alternating eye camera verified\|Double world render frame 1 \|\] Fatal exception'" \
-    | cut -c1-140 || echo "  (timeout: neither marker appeared)"
+    "tail -n +$((since + 1)) -F '$log' $extra_log 2>/dev/null | grep -m1 -E 'Alternating eye camera verified|Double world render frame 1 |\] Fatal exception|SCRIPT *\(E\)|Can.t compile'" \
+    | cut -c1-160 || echo "  (timeout: no marker appeared)"
 fi
 
 say "game install"
@@ -192,6 +202,22 @@ if [[ -n "$latest_script" ]]; then
   { grep -i 'DayZVR\|SCRIPT.*ERROR\|Can.t compile' "$latest_script" || true; } | tail -3 | cut -c1-160 | sed 's/^/  /'
 fi
 
+say "local server (build/local-server/serverprofile)"
+server_profile="$project_dir/build/local-server/serverprofile"
+if [[ -d "$server_profile" ]]; then
+  row "server mod" "$( [[ -d "$project_dir/build/local-server/@DayZVR_Server" ]] && echo deployed || echo "not deployed" )"
+  server_rpt="$(newest "$server_profile" '*.RPT')"
+  if [[ -n "$server_rpt" ]]; then
+    row "server rpt" "$(file_info "$server_rpt")  $(basename "$server_rpt")"
+    { grep -E 'DayZVR|Player connected|disconnected|SCRIPT.*ERROR|Can.t compile' "$server_rpt" || true; } | tail -4 | cut -c1-160 | sed 's/^/  /'
+  fi
+  if [[ -f "$server_profile/dayzvr/cmd.log" ]]; then
+    row "cmd.log" "$(file_info "$server_profile/dayzvr/cmd.log")"
+    tail -n 4 "$server_profile/dayzvr/cmd.log" | cut -c1-160 | sed 's/^/    /'
+  fi
+  [[ -f "$server_profile/dayzvr/cmd.txt" ]] && row "cmd.txt" "PENDING (server has not consumed it)"
+fi
+
 say "script bridge files"
 for name in game.txt vr.txt; do
   path="$profile_dir/dayzvr/$name"
@@ -203,7 +229,13 @@ for name in game.txt vr.txt; do
   fi
 done
 
-if [[ -n "$pids" ]] && ! tail -n +"$((since + 1))" "$log" 2>/dev/null | grep -q '\] Fatal exception'; then
+compile_error=0
+if [[ -n "$latest_script" ]] && [[ "$latest_script" -nt "$offset_file" ]] && grep -q 'SCRIPT *(E)\|Can.t compile' "$latest_script"; then
+  row "RESULT" "SCRIPT COMPILE ERROR (modal dialog is blocking the game; kill the process, fix the mod, redeploy)"
+  grep -m3 'SCRIPT *(E)' "$latest_script" | cut -c1-200 | sed 's/^/  ! /'
+  compile_error=1
+fi
+if [[ -n "$pids" && $compile_error == 0 ]] && ! tail -n +"$((since + 1))" "$log" 2>/dev/null | grep -q '\] Fatal exception'; then
   exit 0
 fi
 exit 1
