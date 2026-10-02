@@ -100,3 +100,102 @@ unproven, **headset** = implemented and sim-verified, waits for a real headset,
 Listed once here; every row above marked **headset** belongs to it. Also: GE-Proton 11-7
 compatibility, hotkeys F9-F12 on the real keyboard, stick-click recenter, drag-crash guard
 under WiVRn, the per-frame `xr_ms` wait breakdown on WiVRn.
+
+## 8. VR feature checklist (what native VR games and good VR mods have)
+
+The common feature set of native VR games and of the three tiers of VR mod (injector:
+stereo + head tracking + gamepad; conversion: motion-controller aim, HUD placement, camera
+fixes, comfort; full conversion: tracked hands, physical weapons, manual interactions,
+VR UI), checked against this mod. **have** = in FEATURES.md, **partial** = exists with a
+gap listed above, **–** = not started. DayZ's engine limits (Enforce has no bone access,
+no sockets, no FFI; the renderer builds its draw lists before our projection hook) decide
+which rows are realistic; "idea" rows above are the ones we have already decided to try.
+
+### Rendering and tracking (injector tier)
+
+| Feature | Status | Where |
+| --- | --- | --- |
+| 6DoF head tracking (rotation) | have | closed-loop head aim, lock axes |
+| 6DoF head tracking (position) | partial | translation ignored by the engine, R1 |
+| Stereo rendering with real parallax | partial | mono + head rotation, R1/R4 |
+| OpenXR runtime support (Quest, Index, Vive, WMR, WiVRn) | have | all interaction profiles bound |
+| Reprojection / motion smoothing compatibility | – | untested, depends on R1 |
+| Adjustable world scale | – | would follow positional tracking |
+| Camera offsets (forward/back/up/down) | partial | `hmd_position_scale` has no effect, R1 |
+| FOV fix | have | `game_fov`, fit modes, hud safe area |
+| Camera-effect removal (head bob, shake, forced zoom) | – | DayZ's camera shake and ADS zoom untouched |
+| Scopes, NVG, overlays per eye | – | Q1 |
+| VR render settings (supersampling, resolution scale) | partial | `override_game_resolution`, no per-eye scaling |
+| Performance: render once per eye only when needed | partial | `stereo_mode=double` renders twice for one view |
+| Optional gamepad/keyboard play with head tracking | have | controller input can be disabled |
+
+### Controls and comfort (conversion tier)
+
+| Feature | Status | Where |
+| --- | --- | --- |
+| Decoupled aiming (head = camera, right hand = gun) | partial | `controller_aim` moves camera+weapon together, M2 |
+| Independent head and weapon aim | – | needs the weapon bone, M2 |
+| Smooth locomotion (left stick) | have | WASD injection |
+| Smooth turning / snap turning with angle | have | `turn_rate`, `snap_turn` |
+| Head- vs hand-relative movement direction | – | always camera-relative (engine) |
+| Teleport locomotion | – | not planned (DayZ is not a teleport game) |
+| Room-scale walking | – | positional tracking first, R1 |
+| Physical crouch / prone | have (default off) | `stance.*`, M5 |
+| Leaning | – | Q/E keys not mapped to head lean |
+| Sprint, jump, swim, climb from gestures | – | buttons only |
+| Seated mode, height calibration | partial | `recenter`, no seated reference, M5 |
+| Movement vignette / tunnelling | have | `comfort.*` |
+| Dominant-hand selection | – | right hand hard-coded |
+| Recenter view (hotkey, stick click, CLI) | have | – |
+| Disable artificial head movement (vehicle-relative camera) | have | `vehicle.lock_view` |
+| Controller remapping | – | fixed mapping, keyboard remains |
+| Weapon stabilisation / smoothing | – | aim-loop damping only |
+| Grab toggle instead of hold | – | wheel grip is hold-only |
+
+### Hands, weapons and interactions (full-conversion tier)
+
+| Feature | Status | Where |
+| --- | --- | --- |
+| Floating hands / hand models / finger tracking | – | Q1, M2 |
+| Tracked weapon following the hand | – | M2 |
+| Two-handed weapon grip | – | M1/M3 |
+| Guns with manual reloading, magazine gestures | – | M3 |
+| Melee from swings | have (default off) | `melee.*`, M2 |
+| Blocking / parrying | – | – |
+| Throwing (grenades, items) | – | – |
+| Grab, pick up, switch hands, inspect | – | M4 |
+| Doors, drawers, handles, vehicle entry by grab | – | M4 |
+| Physical buttons / knobs (vehicle controls) | have (buttons), – (knobs) | A/grip+A/stick click in cars |
+| Steering wheel and pedals | have | `vehicle.*`, V2 |
+| Hip / shoulder / back holsters, virtual pockets | – | M3 |
+| Wrist or chest inventory, physical backpack | – | M3 |
+| Flashlight / watch / map in hand | – | – |
+| Eating / drinking gestures | – | – |
+| Items highlight when grabbable, distance grab | – | – |
+
+### UI and feedback
+
+| Feature | Status | Where |
+| --- | --- | --- |
+| Menus on a world-locked screen with laser pointer | have | GUI quad + GUI ray |
+| HUD repositioning into 3D (head, wrist, world) | partial | HUD safe area; ammo quad on the controller; dashboard screen-space, S2/V2 |
+| Wrist-mounted menu / dashboard | – | V2, S2 |
+| Direct-touch buttons | – | – |
+| Depth-aware or controller-attached crosshair | – | – |
+| Cutscenes / loading screens on a virtual screen | partial | GUI quad covers menus; loading not examined |
+| Haptics on fire | have | `haptics.*`, lags one bridge interval, M1 |
+| Haptics on hits, damage, vehicle collisions, interactions | – | M1/M2 |
+| Impact-dependent vibration | – | – |
+| Spatial audio, directional footsteps | engine | DayZ's own; headset audio through the runtime |
+| In-game settings menu for the mod | – | U2 (config editor exists outside the game) |
+| Subtitle / text size options | – | – |
+| Accessibility: one-handed mode, button remap, height offset | – | – |
+
+### Multiplayer
+
+| Feature | Status | Where |
+| --- | --- | --- |
+| Head and hand movement visible to other players | – | needs the hand/weapon bone path, M2 |
+| Voice chat with spatial audio | engine | DayZ VON |
+| Avatars, gestures | – | – |
+| Signed mods for public servers | – | S2 |
