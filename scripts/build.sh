@@ -91,12 +91,20 @@ step_build() {
 step_test() {
   say "test"
   mkdir -p "$log_dir"
-  local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion'
+  python3 -B -m unittest discover -s "$project_dir/tests" -p 'test_*.py' -v 2>&1 | tee "$log_dir/test-tools.log"
+  local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -fsanitize=address,undefined -fno-omit-frame-pointer -g'
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
   run_in_container "g++ $gpp_flags tests/ammo_display_test.cpp common/ammo_display.cpp -o build/ammo_display_test && ./build/ammo_display_test" 2>&1 | tee "$log_dir/test-ammo-display.log"
-  python3 scripts/build-pbo.py enforce/DayZVR "build/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
-  python3 scripts/build-pbo.py enforce/DayZVR_Server "build/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
+  run_in_container "g++ $gpp_flags -pthread tests/projection_replay_test.cpp -o build/projection_replay_test && ./build/projection_replay_test" 2>&1 | tee "$log_dir/test-projection-replay.log"
+  run_in_container "g++ $gpp_flags -pthread tests/stereo_state_test.cpp common/stereo_state.cpp -o build/stereo_state_test && ./build/stereo_state_test" 2>&1 | tee "$log_dir/test-stereo-state.log"
+  run_in_container "g++ $gpp_flags tests/present_frame_test.cpp -o build/present_frame_test && ./build/present_frame_test" 2>&1 | tee "$log_dir/test-present-frame.log"
+  run_in_container "g++ $gpp_flags -I\"$openxr_sdk/include\" tests/xr_swapchain_image_test.cpp -o build/xr_swapchain_image_test && ./build/xr_swapchain_image_test" 2>&1 | tee "$log_dir/test-xr-swapchain-image.log"
+  run_in_container "g++ $gpp_flags -I\"$openxr_sdk/include\" tests/xr_frame_policy_test.cpp -o build/xr_frame_policy_test && ./build/xr_frame_policy_test" 2>&1 | tee "$log_dir/test-xr-frame-policy.log"
+  run_in_container "g++ $gpp_flags tests/gui_capture_sizing_test.cpp -o build/gui_capture_sizing_test && ./build/gui_capture_sizing_test" 2>&1 | tee "$log_dir/test-gui-capture-sizing.log"
+  run_in_container "g++ $gpp_flags -pthread tests/render_trace_test.cpp -o build/render_trace_test && ./build/render_trace_test" 2>&1 | tee "$log_dir/test-render-trace.log"
+  python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR" "$build_dir/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
+  python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR_Server" "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
     run_in_container "g++ $gpp_flags -Icommon tests/build_checks.cpp -o build/build_checks && ./build/build_checks build/dayz-image.bin" 2>&1 | tee "$log_dir/test-build-checks.log"
   else
