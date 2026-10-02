@@ -254,6 +254,12 @@ namespace
     // behave as locked, so the head looks around the cabin without the aim loop
     // dragging DayZ's (vehicle-relative) camera after a world-space HMD direction.
     bool g_vehicleLockView{true};
+    // [stereo] aim_residual_render: the closed loop can only move DayZ's camera a frame
+    // late and in whole mouse counts, so the world image would lag the head by the
+    // loop's remaining error while the game is focused (seen as the world, and so the
+    // hands drawn in head space, shaking). Rendering the residual on the render side
+    // keeps the eyes exactly on the head while DayZ's aim catches up underneath.
+    bool g_aimResidualRender{true};
 
     bool VehicleViewLocked() noexcept
     {
@@ -1059,14 +1065,16 @@ float4 PSMain(VertexOutput input) : SV_Target
 
     // Rebuilds the HMD rotation from the yaw/pitch/roll decomposition used by
     // UpdateNativeHmdAim, keeping roll and only the axes DayZ does not receive.
+    // extraYaw/extraPitch (radians, same convention as the HMD decomposition) are added
+    // on an axis that is not kept: the closed loop's residual error.
     Quaternion RenderOnlyRotation(const Quaternion& relative, bool keepYaw,
-        bool keepPitch) noexcept
+        bool keepPitch, float extraYaw = 0.0f, float extraPitch = 0.0f) noexcept
     {
         const float yaw = keepYaw ? std::atan2(
             2.0f * (relative.w * relative.y + relative.x * relative.z),
-            1.0f - 2.0f * (relative.x * relative.x + relative.y * relative.y)) : 0.0f;
+            1.0f - 2.0f * (relative.x * relative.x + relative.y * relative.y)) : extraYaw;
         const float pitch = keepPitch ? std::asin((std::clamp)(
-            2.0f * (relative.w * relative.x - relative.z * relative.y), -1.0f, 1.0f)) : 0.0f;
+            2.0f * (relative.w * relative.x - relative.z * relative.y), -1.0f, 1.0f)) : extraPitch;
         const float roll = std::atan2(
             2.0f * (relative.w * relative.z + relative.x * relative.y),
             1.0f - 2.0f * (relative.x * relative.x + relative.z * relative.z));
@@ -1138,7 +1146,10 @@ float4 PSMain(VertexOutput input) : SV_Target
             // transform because a conventional mouse camera has no roll axis.
             // A locked axis stays on the render side instead, so the head still
             // looks around that axis while DayZ's aim direction ignores it.
-            renderRotation = RenderOnlyRotation(relative, YawLocked(), PitchLocked());
+            const bool residual = g_aimResidualRender && g_hmdAimClosedLoop && g_haveAimCenter &&
+                !g_controllerAimActive;
+            renderRotation = RenderOnlyRotation(relative, YawLocked(), PitchLocked(),
+                residual ? g_aimYawError : 0.0f, residual ? g_aimPitchError : 0.0f);
             if (g_controllerAimActive && g_haveAimCenter)
             {
                 // The game camera follows the controller; undo its rotation
@@ -3182,6 +3193,7 @@ namespace dayz::runtime_probe
         g_lockHmdYaw = ReadBoolean(L"stereo", L"lock_yaw", false);
         g_lockHmdPitch = ReadBoolean(L"stereo", L"lock_pitch", false);
         g_vehicleLockView = ReadBoolean(L"vehicle", L"lock_view", true);
+        g_aimResidualRender = ReadBoolean(L"stereo", L"aim_residual_render", true);
         g_hmdAimClosedLoop = ReadBoolean(L"stereo", L"hmd_aim_closed_loop", true);
         g_controllerAim = ReadBoolean(L"stereo", L"controller_aim", false);
         g_aimLoopDamping = ReadFloat(L"stereo", L"hmd_aim_loop_damping", 0.5f);
@@ -3613,6 +3625,7 @@ namespace dayz::runtime_probe
             {"stereo.lock_yaw", TunableKind::Bool, &g_lockHmdYaw, 0.0f, 1.0f},
             {"stereo.lock_pitch", TunableKind::Bool, &g_lockHmdPitch, 0.0f, 1.0f},
             {"vehicle.lock_view", TunableKind::Bool, &g_vehicleLockView, 0.0f, 1.0f},
+            {"stereo.aim_residual_render", TunableKind::Bool, &g_aimResidualRender, 0.0f, 1.0f},
             {"stereo.hmd_aim_closed_loop", TunableKind::Bool, &g_hmdAimClosedLoop, 0.0f, 1.0f},
             {"stereo.controller_aim", TunableKind::Bool, &g_controllerAim, 0.0f, 1.0f},
             {"stereo.double_capture_clear", TunableKind::Float, &g_doubleCaptureClear, 1.0f, 64.0f},

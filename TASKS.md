@@ -189,8 +189,20 @@ detour. Update the entry when you touch the track; keep history in git, not here
   verb, WeaponManager.Fire) twice -> two "haptic pulse: shot from M4A1" lines.
   Detection lags the shot by up to one bridge interval (100 ms); a native hook on the
   weapon fire event would remove that.
+- State (09:57, answers "why are my hands spazzing out when the game has focus"):
+  with native aim the render kept only roll on the render side, so the eyes showed
+  DayZ's mouse camera, which trails the head by the closed loop's residual (one frame
+  of latency, whole mouse counts, per-frame turn cap). Unfocused, no counts are
+  injected and the world is still; focused, the world judders by that residual and
+  the hands (drawn in head space) appear to shake against it. It is a side effect of
+  the mouse control, not of tracking. Fix: `[stereo] aim_residual_render` (default
+  on, live tunable) adds the residual yaw/pitch on the render side, so the eyes sit
+  exactly on the head while DayZ catches up. Sim: render-native equals the reported
+  error in both axes with the option on, 0.00 with it off. Not applied while
+  controller_aim drives the camera (that branch already undoes the camera rotation).
 - Next: gesture reload; two-handed grip; haptics for melee hits and vehicle
-  collisions (bridge has no event for either yet).
+  collisions (bridge has no event for either yet); headset check that the residual
+  render removes the judder.
 
 ## G1. Game and server control for testing (spawn, teleport, vehicles)
 - State: `enforce/DayZVR_Server` and `scripts/dayz-cmd.sh` implement local-server
