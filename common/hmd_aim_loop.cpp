@@ -13,18 +13,32 @@ namespace dayz::aim_loop
         constexpr float kMinLearnCounts = 3.0f;
         constexpr float kMinLearnRadians = 0.0005f;
         constexpr float kLearnRate = 0.08f;
-        // The learned gain may not drift more than this factor from the config.
+        // The learned gain may rise up to this factor above the configured guess
+        // (DayZ needs more counts per radian at higher frame rates) but fall at most
+        // kGainSpanDown below it: input smoothing spreads a push over several frames,
+        // so a gentle push right after a firm one looks far more effective than it is.
         constexpr float kGainSpan = 16.0f;
+        constexpr float kGainSpanDown = 4.0f;
         constexpr unsigned kFlipsBeforeBackoff = 3;
+        // Gain is learned only from gentle pushes (below this share of the limit):
+        // DayZ caps how far the view turns per frame, so a large push moves the view
+        // less than proportionally and would inflate the learned counts-per-radian.
+        constexpr float kLearnMaxShare = 0.25f;
+        constexpr unsigned kStallFrames = 45;
+        constexpr float kStallOutputScale = 0.125f;
 
         float Clamp(float value, float low, float high) noexcept
         {
             return (std::min)((std::max)(value, low), high);
         }
 
-        void Learn(AxisState& axis, float initialGain, float actual, bool wrap) noexcept
+        void Learn(AxisState& axis, const Config& config, float initialGain, float actual,
+            bool wrap) noexcept
         {
             if (!axis.haveLast || std::fabs(axis.lastCounts) < kMinLearnCounts)
+                return;
+            const float limit = (std::max)(config.maxCountsPerFrame, 1.0f);
+            if (std::fabs(axis.lastCounts) > limit * kLearnMaxShare)
                 return;
             float achieved = actual - axis.lastActual;
             if (wrap)
@@ -38,7 +52,7 @@ namespace dayz::aim_loop
                 return;
             const float magnitude = std::fabs(initialGain);
             const float sign = initialGain < 0.0f ? -1.0f : 1.0f;
-            const float clamped = sign * Clamp(std::fabs(observed), magnitude / kGainSpan,
+            const float clamped = sign * Clamp(std::fabs(observed), magnitude / kGainSpanDown,
                 magnitude * kGainSpan);
             axis.countsPerRadian += (clamped - axis.countsPerRadian) * kLearnRate;
         }
@@ -47,7 +61,7 @@ namespace dayz::aim_loop
             float actual, bool wrap) noexcept
         {
             if (config.adaptive)
-                Learn(axis, initialGain, actual, wrap);
+                Learn(axis, config, initialGain, actual, wrap);
             axis.lastActual = actual;
             axis.haveLast = true;
 
@@ -73,7 +87,32 @@ namespace dayz::aim_loop
             }
             const float damping = Clamp(config.damping, 0.05f, 1.0f);
             const float limit = (std::max)(config.maxCountsPerFrame, 1.0f);
-            const float counts = Clamp(error * axis.countsPerRadian * damping, -limit, limit);
+            float counts = Clamp(error * axis.countsPerRadian * damping, -limit, limit);
+            // Stall detection: a run of firm pushes during which the error did not
+            // shrink means the game will not follow (pitch clamp, stance limit); back
+            // the output off until the error starts moving again.
+            if (std::fabs(counts) > limit * kLearnMaxShare)
+            {
+                if (axis.saturatedFrames == 0)
+                    axis.saturatedStartError = error;
+                ++axis.saturatedFrames;
+                const bool shrinking = std::fabs(error) < std::fabs(axis.saturatedStartError) - config.deadband * 4.0f;
+                if (shrinking)
+                {
+                    axis.saturatedFrames = 1;
+                    axis.saturatedStartError = error;
+                    axis.stalled = false;
+                }
+                else if (axis.saturatedFrames >= kStallFrames)
+                    axis.stalled = true;
+            }
+            else
+            {
+                axis.saturatedFrames = 0;
+                axis.stalled = false;
+            }
+            if (axis.stalled)
+                counts = Clamp(counts, -limit * kStallOutputScale, limit * kStallOutputScale);
             axis.lastCounts = counts;
             return counts;
         }

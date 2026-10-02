@@ -103,6 +103,65 @@ namespace
     }
 }
 
+namespace
+{
+    // A game that caps how far the view may turn per frame (DayZ's turn-rate cap):
+    // saturated pushes must not inflate the learned gain, and the loop must still
+    // settle within tolerance afterwards.
+    void TestTurnRateCapDoesNotInflateGain()
+    {
+        Config config{};
+        config.yawCountsPerRadian = -600.0f;
+        config.pitchCountsPerRadian = -600.0f;
+        config.maxCountsPerFrame = 400.0f;
+        State state{};
+        const float trueCountsPerRadian = -3600.0f;
+        const float maxTurnPerFrame = 0.02f;
+        float yaw = 0.0f;
+        float pending = 0.0f;
+        Output out{};
+        for (int frame = 0; frame < 600; ++frame)
+        {
+            float delta = pending / trueCountsPerRadian;
+            delta = (std::min)((std::max)(delta, -maxTurnPerFrame), maxTurnPerFrame);
+            yaw = WrapAngle(yaw + delta);
+            out = Step(state, config, 2.2f, 0.0f, yaw, 0.0f);
+            pending = out.yawCounts;
+        }
+        Expect(std::fabs(out.yawError) < 0.01f, "turn-rate-capped game must still converge");
+        Expect(std::fabs(state.yaw.countsPerRadian) < std::fabs(trueCountsPerRadian) * 1.5f,
+            "saturated frames must not inflate the learned gain");
+    }
+
+    // A target the game can never reach (beyond its pitch clamp): after a short
+    // saturated run the loop must back off instead of pushing the limit forever.
+    void TestUnreachableTargetBacksOff()
+    {
+        Config config{};
+        config.yawCountsPerRadian = -600.0f;
+        config.pitchCountsPerRadian = -600.0f;
+        config.maxCountsPerFrame = 400.0f;
+        State state{};
+        FakeGame game{-600.0f};
+        game.pitchLimit = 0.5f;
+        Output out{};
+        for (int frame = 0; frame < 200; ++frame)
+        {
+            out = Step(state, config, 0.0f, 1.4f, game.yaw, game.pitch);
+            game.Apply(out);
+        }
+        Expect(std::fabs(out.pitchCounts) <= config.maxCountsPerFrame * 0.125f + 0.001f,
+            "unreachable target must reduce the output to the stall share");
+        // Once the target comes back inside the clamp the loop follows it again.
+        for (int frame = 0; frame < 200; ++frame)
+        {
+            out = Step(state, config, 0.0f, 0.2f, game.yaw, game.pitch);
+            game.Apply(out);
+        }
+        Expect(std::fabs(out.pitchError) < 0.02f, "loop must recover after a stall");
+    }
+}
+
 int main()
 {
     try
@@ -111,6 +170,8 @@ int main()
         TestWrapAround();
         TestPitchLimitNoWindup();
         TestDeadbandSilence();
+        TestTurnRateCapDoesNotInflateGain();
+        TestUnreachableTargetBacksOff();
     }
     catch (const std::exception& error)
     {

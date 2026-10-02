@@ -42,6 +42,12 @@ namespace dayz::aim_loop
         // used to detect oscillation and back the gain off.
         unsigned flips{};
         float lastError{};
+        // Consecutive frames at the output limit without the error shrinking: the
+        // target is unreachable (stance/pitch clamp, turn-rate cap) and hammering
+        // the limit only makes the view judder.
+        unsigned saturatedFrames{};
+        float saturatedStartError{};
+        bool stalled{};
     };
 
     struct State
