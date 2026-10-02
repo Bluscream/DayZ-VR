@@ -298,7 +298,16 @@ detour. Update the entry when you touch the track; keep history in git, not here
   1 -> rpm 800 -> 0 verified; lights/horn actions accepted (`lights=` added to
   game.txt for the readback). 09:16: `lights=` verified 0 -> 1 -> 0 on the sim, so
   the server executes the action-manager path; the horn uses the same path.
-- Next: (5) hear the horn on a real client;
+- State (09:43): dashboard widget (`enforce/DayZVR/scripts/5_Mission/DayZVRDashboard.c`,
+  `[bridge] dashboard`, vr.txt `dashboard=1`): one centred text line at the bottom of
+  the HUD rectangle while the local player drives ("0 km/h   gear N   800 rpm
+  fuel 100%  lights", amber when the engine is off), updated by the bridge tick;
+  game.txt reports `dashboard=<visible> <text>`. Verified in the dumped eye image
+  (`build/logs/dashboard-eye0.png`, under the hotbar; the 640x360 compositor is too
+  small to read it). Vanilla gauges still show, so this is mainly the data path for a
+  wrist-anchored version.
+- Next: (5) hear the horn on a real client; (5b) move the dashboard to a wrist/dash
+  anchor (native quad like the ammo display, or project the left grip pose);
   (6) seated recenter / view lock to vehicle yaw; (7) a native fire hook to remove
   the 100 ms haptic latency.
 

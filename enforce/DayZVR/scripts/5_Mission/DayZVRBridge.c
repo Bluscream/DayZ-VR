@@ -42,6 +42,8 @@ class DayZVRBridge
 		return value.ToFloat();
 	}
 
+	protected ref DayZVRDashboard m_Dashboard;
+
 	void Tick(float timeslice)
 	{
 		m_Accumulated += timeslice;
@@ -51,6 +53,9 @@ class DayZVRBridge
 		m_Frame++;
 		WriteGame();
 		ReadVr();
+		if (!m_Dashboard)
+			m_Dashboard = new DayZVRDashboard();
+		m_Dashboard.Update(this);
 		RunClientCommands();
 	}
 
@@ -114,6 +119,7 @@ class DayZVRBridge
 		EntityAI inHands = player.GetItemInHands();
 		FPrintln(file, "melee=" + BoolText(!inHands || inHands.IsMeleeWeapon()));
 		FPrintln(file, "ammo_label=" + BoolText(DayZVRAmmoCounter.s_Visible) + " " + DayZVRAmmoCounter.s_LastScreen.ToString(false));
+		FPrintln(file, "dashboard=" + BoolText(DayZVRDashboard.s_Visible) + " " + DayZVRDashboard.s_LastText);
 		CloseFile(file);
 	}
 

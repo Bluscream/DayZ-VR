@@ -22,6 +22,7 @@ namespace dayz::script_bridge
     {
         bool g_enabled{};
         bool g_ammoCounter{};
+        bool g_dashboard{};
         unsigned g_intervalFrames{6};
         std::wstring g_directory;
         std::wstring g_vrPath;
@@ -117,7 +118,7 @@ namespace dayz::script_bridge
             sprintf_s(text,
                 "frame=%llu\nhmd_valid=%d\nhmd_yaw=%.5f\nhmd_pitch=%.5f\nhmd_roll=%.5f\n"
                 "hmd_x=%.4f\nhmd_y=%.4f\nhmd_z=%.4f\naim_valid=%d\naim_yaw=%.5f\naim_pitch=%.5f\n"
-                "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
+                "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\ndashboard=%d\n"
                 "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n"
                 "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n"
                 "steer_valid=%d\nsteer=%.4f\npedals_valid=%d\nthrottle=%.3f\nbrake=%.3f\n"
@@ -127,7 +128,7 @@ namespace dayz::script_bridge
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
                 aim.valid ? yawOf(aim) : 0.0f, aim.valid ? pitchOf(aim) : 0.0f,
-                probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0, g_ammoCounter ? 1 : 0,
+                probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0, g_ammoCounter ? 1 : 0, g_dashboard ? 1 : 0,
                 viewYawOffset, viewPitchOffset,
                 hud.valid ? hud.left : 0.0f, hud.valid ? hud.top : 0.0f,
                 hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f,
@@ -203,6 +204,7 @@ namespace dayz::script_bridge
     {
         g_enabled = ReadBoolean(iniPath, L"enabled", true);
         g_ammoCounter = ReadBoolean(iniPath, L"ammo_counter", true);
+        g_dashboard = ReadBoolean(iniPath, L"dashboard", true);
         wchar_t interval[16]{};
         GetPrivateProfileStringW(L"bridge", L"interval_frames", L"6", interval,
             static_cast<DWORD>(std::size(interval)), iniPath);
