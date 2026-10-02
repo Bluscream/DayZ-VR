@@ -404,6 +404,28 @@ Findings, each with its fix state:
   tick (or vr.txt itself at frame rate) and the host write it per frame.
 - Order: movement+aim+jump+raise first (fixes focus for walking and looking), then use via
   the action manager, then menus via XInput hook or UIManager, then remove the key path.
+- State (2026-10-02 17:40, supersedes the design above): the user ruled out server-dependent
+  paths and asked for the engine's input manager directly. Ghidra (docs/research/input.md):
+  gameplay reads named actions through the `Input` interface getters (`Input+0x28`, vtable
+  `0xCC5920`), by id or by record, each gated by `HasGameFocus`; the player input controller
+  update `0x4F5D40` consumes `UAMove*` values analogue and the aim through the axis-pair getter
+  `0x5F5E10` as an angular rate. Implemented `common/dayz_input_hooks.cpp` (MinHook on the
+  thirteen getters, the axis pair and the update; `kInputBuildChecks`) with the host-testable
+  override table `common/input_actions.cpp` (press/release/hold-begin latched once per game
+  frame; `tests/input_actions_test.cpp`). The host (`SyncControllerInput`) writes
+  `UAMoveForward/Back/Left/Right` analogue, `UAStance`, `UAReloadMagazine`, `UADefaultAction`,
+  `UATurbo`, `UAGetOver`, `UAFire`, `UATempRaiseWeapon`, `UAItem0..9`; the engine's own reading
+  is combined (max / OR), so the keyboard keeps working, and the focus gate no longer blocks
+  gameplay input. `[input] direct_actions` (default on), `direct_aim` (default off: head and
+  stick yaw/pitch as exact per-frame angles via the axis pair, replacing the closed loop) with
+  `aim_yaw_sign`/`aim_pitch_sign`. No server mod involved. Verified: host test; the DLL build.
+- Next: sim run (`regression-run.sh`) to confirm the hooks install (`Direct input active` in
+  the log, `Direct input: UAMoveForward -> record` lines) and that the stick walks the player
+  with the window unfocused; then headset: `direct_aim=true`, fix the signs, compare with the
+  mouse loop. Then GUI actions (`UAUI*`) for menus without the mouse, vehicle `UACar*`
+  shifting, and removing the SendInput leftovers.
+- Open: the axis-pair clamp constants (`DAT_140C8AB80/64`) may cap large per-frame head
+  turns at high rates; the registry's own per-frame evaluation is still unlocated.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash

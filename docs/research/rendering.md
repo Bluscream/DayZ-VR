@@ -1,3 +1,12 @@
+---
+name: dayz-engine-rendering
+description: >-
+  Frame structure, view prepare/execute/finalize, projection dispatch, camera FrameBase, FOV, HUD scale and GUI capture addresses of DayZ 1.29.163709, and the engine bugs the VR proxy works around.
+game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
+created: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T17:11+0200
+---
+
 # Rendering (DayZ 1.29.163709)
 
 All addresses from `common/dayz_build_profiles.hpp` (per-build table) and

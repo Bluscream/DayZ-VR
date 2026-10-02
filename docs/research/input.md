@@ -1,3 +1,12 @@
+---
+name: dayz-engine-input
+description: >-
+  DayZ 1.29.163709 input system: raw input and XInput device layer, the UAInput action registry and record layout, HumanInputController action tables, and which paths let external code drive the game without SendInput.
+game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
+created: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T17:24+0200
+---
+
 # Input system (DayZ 1.29.163709)
 
 Goal of this research: drive the game's input from outside (VR controllers, head tracking)
@@ -121,6 +130,63 @@ A second table (`0x534EF0`, 53 accesses, called from `0x535320`) covers the othe
 Vehicle actions are `UACarForward/Back/Left/Right`, `UACarHandbrake`, `UACarShiftGearUp/Down`,
 `UAVehicleSlow/Turbo` (full name list: 324 `UA*` strings in the binary).
 
+## The Input interface: how consumers read actions
+
+Gameplay never touches records directly. It calls the **Input interface**, the sub-object at
+`Input+0x28` (vtable `0xCC5920`, one of the seven `Input::vftable` tables), and passes either
+an action **id** (Enforce, `LocalValue_ID`) or a **record pointer** (engine code, through an
+`InputAccess`). Every getter first runs the focus check `0x5F5140(Input, checkFocus, id)`
+(`HasGameFocus`) and returns 0 when a menu owns the input, then reads the record's active
+state block: value = `block+0x10 + block+0x0C`, flags from `block+0x04`.
+
+| Slot | RVA (by id) | RVA (by record) | Returns |
+| --- | --- | --- | --- |
+| 0 / 2 | `0x5F5CF0` | `0x5F5D50` | `LocalValue` (float) |
+| 3 / 5 | `0x5F5A90` | `0x5F5B00` | press, flag bit 1 |
+| 6 / 8 | `0x5F5BC0` | `0x5F5C30` | release, bit 2 |
+| 9 / 11 | `0x5F5960` | `0x5F59D0` | hold, bit 3 |
+| 12 / 14 | `0x5F5460` | `0x5F54D0` | hold begin, bit 4 |
+| 15 / 17 | `0x5F5350` | `0x5F53C0` | double click, bit 6 |
+| 18 | `0x5F6C00` | – | bit 21 (click) |
+| 22 | `0x5F5E10` | – | **axis pair** `(mode, idA, idB, checkFocus)`: `(value(idA) - value(idB))` through a response curve and the sensitivity for `mode` (0 = mouse sensitivity, 1 = raw, 2 = mouse sensitivity without the curve constant, 3 = alternative constant); clamped |
+
+Slots 1, 4, 7, 10, 13, 16, 19 are the by-name variants (`0x5F5DA0` resolves the name with
+`0x534540` and calls the record variant). The by-record getters check `record+0x74 != -0xFFFF`
+first (the default record never reports anything). Records found by name expose their id at
+`record+0x7C` (index into `registry+0x98`).
+
+**DayZPlayerInputController** (RTTI `DayZPlayerInputController::vftable` `0xC88B20`; the
+script-facing `HumanInputController::vftable` `0xC90C90` is the abstract interface) is the
+consumer for the on-foot player:
+- Slot 6, `0x4F5D40(self, player, dt)`: the per-frame update. It fetches the interface with
+  `0x7031A0(0x100EBD0 global, player+0x6DC)` (returns `Input+0x28` for the local player) and
+  the on-foot access table `0x10084D0` (built by `0x535AC0`, 63 entries of 0x20, record pointer
+  at `entry+0x18`). Movement: `right - left` and `forward - back` from `UAMoveRight/Left/
+  Forward/Back` values (so analogue values give analogue speed; the walk/run decision uses the
+  vector length against thresholds plus `UAWalkRun*`/`UATurbo`), jump from `UAGetOver` press,
+  stance from `UAStand/UACrouch/UAProne` presses and `UAStance` hold, use/fire/raise from
+  `UADefaultAction`, `UAFire`, `UATempRaiseWeapon`, quickbar from `UAItem0..9` presses.
+- Slot 7, `0x4F7A30`: aim. Calls the axis pair (slot 22, mode 0) for
+  `(UAAimRight, UAAimLeft)` → `self+0x7C` and `(UAAimDown, UAAimUp)` → `self+0x80`, clamps,
+  and multiplies by dt into `self+0x74/+0x78`, which `GetAimChange()` reports in radians. The
+  axis-pair result is therefore an **angular rate** in radians per second; the mouse delta of
+  the frame enters as the aim records' value.
+
+## Driving the engine from the proxy (implemented: `common/dayz_input_hooks.cpp`)
+
+MinHook on the thirteen getters above plus the axis pair and the player input controller
+update (build-checked in `common/dayz_build_checks.hpp`, `kInputBuildChecks`):
+- The host writes desired `(value, held)` per action name into a table
+  (`common/input_actions.cpp`); the update hook marks the game frame, resolves new names with
+  `0x534540` (`DAT_1009408` registry), latches the table (press/release/hold-begin edges are
+  computed once per frame) and converts the accumulated HMD/stick aim delta into this frame's
+  rate (`delta / dt`).
+- Each getter calls the engine first and combines: values take the maximum, flags are OR-ed,
+  the axis pair adds the VR rate. Keyboard and mouse keep working; the focus check is honoured
+  so menus never receive gameplay actions.
+- Nothing is written into engine memory; `[input] direct_actions=false` or an unknown build
+  leaves the hooks off and the host falls back to `SendInput`.
+
 ## Enforce-side facts that matter
 
 - `HumanInputController.Override*` (movement speed/angle, aim change, raise, melee evade,
@@ -137,11 +203,14 @@ Vehicle actions are `UACarForward/Back/Left/Right`, `UACarHandbrake`, `UACarShif
 | Path | Server mod needed | Focus independent | Analog | Status |
 | --- | --- | --- | --- | --- |
 | `SendInput` keys/mouse (current proxy) | no | **no** | no | verified, the problem |
-| Write record values `+0x3C/+0x40` and flags `+0x34` after the registry update, before gameplay reads them | no | yes | yes | layout decompiled; update hook pending |
+| Hook the Input interface getters and combine the VR state with the engine's reading | no | yes | yes | **implemented** (`dayz_input_hooks.cpp`), headset verification pending |
+| Write record values `+0x3C/+0x40` and flags `+0x34` before gameplay reads them | no | yes | yes | possible alternative; not needed |
 | Call the raw handlers `0x351610/0x351740` with synthetic `RAWINPUT` | no | yes | mouse only | decompiled, untested |
 | Hook `XInputGetState` (ordinal 2 through `0xC02EF0`) and return a virtual pad | no | yes (polled) | yes | fallback; flips UI to controller mode |
 | `HumanInputController.Override*` from a client mod | **yes** for movement | yes | yes | measured by dayz-mcp |
 
 Open: the registry's per-frame evaluation function (which turns device events into record
-flags and values) and the exact meaning of the two value floats (`+0x3C` vs `+0x40`; likely
-per-device or per-alternative contributions).
+flags and values), the exact meaning of the two value floats (`+0x3C` vs `+0x40`; likely
+per-device or per-alternative contributions), the vehicle (`UACar*`) consumer, and the GUI
+actions (`UAUI*`: `UAUIBack`, `UAUIMenu`, `UAUISelect`, `UAUIUp/Down/Left/Right`, ...) that
+would let menus be driven without the mouse.

@@ -1,3 +1,12 @@
+---
+name: dayz-engine-research
+description: >-
+  Index of the DayZ (Enfusion) engine reverse-engineering notes: which file covers rendering, input, scripting and the Ghidra tooling, plus the conventions used in all of them.
+game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
+created: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T17:11+0200
+---
+
 # DayZ engine research notes
 
 Condensed reverse-engineering findings about the DayZ (Enfusion) client, written for other

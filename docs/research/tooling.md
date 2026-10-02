@@ -1,3 +1,12 @@
+---
+name: dayz-engine-tooling
+description: >-
+  How the research notes were produced: headless Ghidra project, scripts/ghidra-decompile.sh query types, import and RTTI tricks, runtime verification.
+game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
+created: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T17:11+0200
+---
+
 # Tooling: how the notes were produced
 
 ## Headless Ghidra project

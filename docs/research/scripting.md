@@ -1,3 +1,12 @@
+---
+name: dayz-engine-scripting
+description: >-
+  Enforce Script facts that matter for native code and client-only mods: native binding tables, client versus server authority, spawning flags, language pitfalls and the file bridge.
+game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
+created: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T17:11+0200
+---
+
 # Enforce Script facts for native code
 
 What a client-side mod (`-mod=@...`, `scripts/` PBO with `3_Game`..`5_Mission` modules) can
