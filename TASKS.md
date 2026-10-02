@@ -241,8 +241,14 @@ detour. Update the entry when you touch the track; keep history in git, not here
 - State (superseded below): started as keyboard A/D only; the key-pulse idea and the
   virtual gamepad were never needed because `Car.SetSteering`/`SetThrottle`/`SetBrake`
   are script natives that beat the engine's input when called from `CarScript.OnUpdate`.
-- Open (still): seated recenter (`[comfort]` head height) and a view-lock-to-vehicle-yaw
-  option; wrist dashboard from game.txt vehicle data.
+- Open (still): seated recenter (`[comfort]` head height).
+- State (09:50): `[vehicle] lock_view` (default on, live tunable `vehicle.lock_view`):
+  while the bridge reports `in_vehicle` both head axes are treated like `lock_yaw` +
+  `lock_pitch` (render-only), so the cabin view follows the head and the aim loop no
+  longer drags DayZ's vehicle-relative camera after a world-space HMD direction.
+  Sim: in the car the error reads exactly 0.0 with frozen pending counts; switching
+  the tunable off re-engages the loop (error 0.1, counts moving). Headset: check
+  that keyboard/stick free-look in the cabin still feels right with the lock.
 - State (2026-10-02 07:55, test rig): `scripts/dayz-cmd.sh spawn OffroadHatchback`
   (wheels mapped per model: HatchbackWheel, CivSedanWheel, Truck_01_Wheel, <type>_Wheel),
   `tpto [dx dy dz]` stands the player at the driver's door, server `enter` runs
