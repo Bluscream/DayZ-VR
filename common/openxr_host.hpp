@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dayz_runtime_probe.hpp"
 #include "frame_source.hpp"
 #include "xr_structure.hpp"
 #include "xr_swapchain_image.hpp"
@@ -107,8 +108,9 @@ private:
     bool PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept;
     bool CreateControllerActions();
     bool CreateAxisSwapchain(const std::vector<std::int64_t>& formats);
-    void SyncControllerInput(XrTime displayTime, bool guiVisible);
-    void ReleaseControllerKeys() noexcept;
+    void SyncControllerInput(XrTime displayTime, bool guiVisible, bool injectInput);
+    void ReleaseInjectedInput() noexcept;  // held keys/mouse buttons only; poses stay
+    void ReleaseControllerKeys() noexcept; // ReleaseInjectedInput + forget controller poses
     void PollEvents();
     void RenderFrame();
     void AnchorGuiQuad(const XrPosef& headPose) noexcept;
@@ -169,11 +171,17 @@ private:
     bool guiQuadHasImage_{};
     bool controllerInputEnabled_{true};
     bool controllerAxesEnabled_{true};
-    bool ammoQuadEnabled_{true};
-    float ammoQuadWidthMeters_{0.07f};
-    XrVector3f ammoQuadOffset_{0.0f, 0.04f, -0.02f};
-    float ammoQuadTiltDegrees_{40.0f};
+    bool ammoQuadEnabled_{true};  // swapchain exists (ini, needs restart)
+    // Live tunables (hud.ammo_quad*), registered with the runtime probe so the debug
+    // plugin can change them while DayZ runs. Written by the debug thread, read per frame.
+    std::atomic<float> ammoQuadVisible_{1.0f};
+    std::atomic<float> ammoQuadWidthMeters_{0.07f};
+    std::atomic<float> ammoQuadOffsetX_{0.0f};
+    std::atomic<float> ammoQuadOffsetY_{0.04f};
+    std::atomic<float> ammoQuadOffsetZ_{-0.02f};
+    std::atomic<float> ammoQuadTiltDegrees_{40.0f};
     unsigned ammoQuadPixelHeight_{48};
+    std::array<dayz::runtime_probe::ExternalTunable, 6> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 
 struct ID3D11Device;
@@ -64,6 +66,17 @@ namespace dayz::runtime_probe
     // Invokes `visit(name, value)` for every tunable.
     void ForEachTunable(void (*visit)(void* context, const char* name, double value),
         void* context) noexcept;
+    // Tunables owned by another component (the OpenXR host's quads, for example).
+    // Each row names an atomic the owner reads every frame; a bool is 0/1 in a float.
+    // The table must outlive the process; one registration replaces the previous one.
+    struct ExternalTunable
+    {
+        const char* name;
+        std::atomic<float>* value;
+        float minimum;
+        float maximum;
+    };
+    void RegisterTunables(const ExternalTunable* table, std::size_t count) noexcept;
     // Forget the captured HMD yaw/position centre so the next frame recaptures it.
     void RecenterHmd() noexcept;
     // True while [stereo] hmd_aim_closed_loop drives DayZ's mouse camera.

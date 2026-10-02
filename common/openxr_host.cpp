@@ -738,6 +738,7 @@ bool OpenXrHost::CreateAmmoSwapchain(const std::vector<std::int64_t>& formats)
 bool OpenXrHost::PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept
 {
     if (!ammoQuadEnabled_ || ammoSwapchain_.handle == XR_NULL_HANDLE ||
+        ammoQuadVisible_.load(std::memory_order_relaxed) == 0.0f ||
         !dayz::script_bridge::Enabled())
         return false;
     const XrSpaceLocation& grip = gripLocations_[1];
@@ -784,14 +785,17 @@ bool OpenXrHost::PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept
     layer.subImage.imageRect.extent = {static_cast<std::int32_t>(ammoSwapchain_.width),
         static_cast<std::int32_t>(ammoSwapchain_.height)};
     // Tilt about the grip's x axis so the face (+z of the quad) turns towards the eyes.
-    const float half = ammoQuadTiltDegrees_ * 3.14159265f / 360.0f;
+    const float half = ammoQuadTiltDegrees_.load(std::memory_order_relaxed) * 3.14159265f / 360.0f;
     const XrQuaternionf tilt{std::sin(half), 0.0f, 0.0f, std::cos(half)};
     layer.pose.orientation = Multiply(grip.pose.orientation, tilt);
-    const XrVector3f offset = Rotate(grip.pose.orientation, ammoQuadOffset_);
+    const XrVector3f offset = Rotate(grip.pose.orientation,
+        {ammoQuadOffsetX_.load(std::memory_order_relaxed), ammoQuadOffsetY_.load(std::memory_order_relaxed),
+            ammoQuadOffsetZ_.load(std::memory_order_relaxed)});
     layer.pose.position = {grip.pose.position.x + offset.x, grip.pose.position.y + offset.y,
         grip.pose.position.z + offset.z};
-    layer.size.width = ammoQuadWidthMeters_;
-    layer.size.height = ammoQuadWidthMeters_ * static_cast<float>(ammoSwapchain_.height) /
+    const float width = ammoQuadWidthMeters_.load(std::memory_order_relaxed);
+    layer.size.width = width;
+    layer.size.height = width * static_cast<float>(ammoSwapchain_.height) /
         static_cast<float>((std::max)(1u, ammoSwapchain_.width));
     return true;
 }
@@ -847,12 +851,23 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     controllerInputEnabled_ = ReadBoolean(L"controls", L"enabled", true);
     controllerAxesEnabled_ = ReadBoolean(L"controls", L"show_controller_axes", true);
     ammoQuadEnabled_ = ReadBoolean(L"hud", L"ammo_quad", true);
+    ammoQuadVisible_ = ammoQuadEnabled_ ? 1.0f : 0.0f;
     ammoQuadWidthMeters_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_width_meters", 0.07f), 0.01f, 0.5f);
-    ammoQuadOffset_ = {(std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_x", 0.0f), -0.5f, 0.5f),
-        (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_y", 0.04f), -0.5f, 0.5f),
-        (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_z", -0.02f), -0.5f, 0.5f)};
+    ammoQuadOffsetX_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_x", 0.0f), -0.5f, 0.5f);
+    ammoQuadOffsetY_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_y", 0.04f), -0.5f, 0.5f);
+    ammoQuadOffsetZ_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_z", -0.02f), -0.5f, 0.5f);
     ammoQuadTiltDegrees_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_tilt_degrees", 40.0f), -180.0f, 180.0f);
     ammoQuadPixelHeight_ = (std::clamp)(ReadUnsigned(L"hud", L"ammo_quad_pixel_height", 48), 8u, 256u);
+    // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
+    hostTunables_ = {{
+        {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
+        {"hud.ammo_quad_width_meters", &ammoQuadWidthMeters_, 0.01f, 0.5f},
+        {"hud.ammo_quad_offset_x", &ammoQuadOffsetX_, -0.5f, 0.5f},
+        {"hud.ammo_quad_offset_y", &ammoQuadOffsetY_, -0.5f, 0.5f},
+        {"hud.ammo_quad_offset_z", &ammoQuadOffsetZ_, -0.5f, 0.5f},
+        {"hud.ammo_quad_tilt_degrees", &ammoQuadTiltDegrees_, -180.0f, 180.0f},
+    }};
+    dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
     guiRayEnabled_ = ReadBoolean(L"controls", L"show_gui_ray", true) &&
         controllerInputEnabled_;
@@ -993,15 +1008,20 @@ void OpenXrHost::AnchorGuiQuad(const XrPosef& headPose) noexcept
 
 void OpenXrHost::ReleaseControllerKeys() noexcept
 {
-    leftStickClickDown_ = false;
-    snapTurnArmed_ = true;
-    lastTurnTime_ = 0;
-    guiRayValid_ = false;
+    ReleaseInjectedInput();
     for (auto& location : gripLocations_)
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     for (auto& location : aimLocations_)
         location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
     dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
+}
+
+void OpenXrHost::ReleaseInjectedInput() noexcept
+{
+    leftStickClickDown_ = false;
+    snapTurnArmed_ = true;
+    lastTurnTime_ = 0;
+    guiRayValid_ = false;
     const auto comfort = dayz::stereo_state::GetComfortVignette();
     dayz::stereo_state::SetComfortVignette(0.0f, comfort.radius);
     constexpr WORD keys[4]{'W', 'A', 'S', 'D'};
@@ -1068,7 +1088,7 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
     }
 }
 
-void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
+void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool injectInput)
 {
     if (!controllerInputEnabled_ || actionSet_ == XR_NULL_HANDLE)
     {
@@ -1120,6 +1140,13 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
     // how this translation unit was compiled, not which host is using it.
     if (!gameSwapChain_)
         return;
+    if (!injectInput)
+    {
+        // Poses above stay live (ammo quad, rays, debug snapshot); nothing may reach
+        // the game while its window is not the desktop foreground.
+        ReleaseInjectedInput();
+        return;
+    }
     const auto vectorState = [&](std::size_t hand) {
         XrActionStateVector2f state(MakeXr<XrActionStateVector2f>(XR_TYPE_ACTION_STATE_VECTOR2F));
         XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
@@ -1383,9 +1410,11 @@ void OpenXrHost::RenderFrame()
     DWORD foregroundProcess{};
     const bool desktopFocused = foreground && GetWindowThreadProcessId(foreground, &foregroundProcess) &&
         foregroundProcess == GetCurrentProcessId();
-    if (dayz::xr::InputAllowed(sessionState_.load(), frameState.shouldRender != XR_FALSE,
-            located, gameSwapChain_ != nullptr, desktopFocused))
-        SyncControllerInput(frameState.predictedDisplayTime, guiVisible);
+    const bool rendering = frameState.shouldRender != XR_FALSE;
+    if (dayz::xr::TrackingAllowed(sessionState_.load(), rendering, located))
+        SyncControllerInput(frameState.predictedDisplayTime, guiVisible,
+            dayz::xr::InputAllowed(sessionState_.load(), rendering, located,
+                gameSwapChain_ != nullptr, desktopFocused));
     else
         ReleaseControllerKeys();
     if (!located || !frameState.shouldRender)

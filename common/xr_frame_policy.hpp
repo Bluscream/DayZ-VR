@@ -12,10 +12,19 @@ namespace dayz::xr
         return count == 2 && (flags & valid) == valid;
     }
 
+    // Controller poses (grip/aim spaces, action state) may be read whenever the XR
+    // session is focused and the views are tracked; desktop focus is irrelevant.
+    constexpr bool TrackingAllowed(XrSessionState session, bool rendering, bool validViews) noexcept
+    {
+        return session == XR_SESSION_STATE_FOCUSED && rendering && validViews;
+    }
+
+    // Keyboard/mouse injection into the game additionally needs the game window
+    // to be the desktop foreground, so an unfocused DayZ never receives held keys.
     constexpr bool InputAllowed(XrSessionState session, bool rendering, bool validViews,
         bool gameAttached, bool desktopFocused) noexcept
     {
-        return session == XR_SESSION_STATE_FOCUSED && rendering && validViews &&
+        return TrackingAllowed(session, rendering, validViews) &&
             (!gameAttached || desktopFocused);
     }
 

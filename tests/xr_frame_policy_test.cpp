@@ -31,6 +31,14 @@ int main()
     Expect(!InputAllowed(XR_SESSION_STATE_FOCUSED, true, false, true, true), "invalid views release input");
     Expect(!InputAllowed(XR_SESSION_STATE_FOCUSED, true, true, true, false), "desktop focus loss releases input");
     Expect(InputAllowed(XR_SESSION_STATE_FOCUSED, true, true, false, false), "probe can still locate controllers");
+    Expect(TrackingAllowed(XR_SESSION_STATE_FOCUSED, true, true), "tracking while focused and rendering");
+    Expect(!TrackingAllowed(XR_SESSION_STATE_VISIBLE, true, true), "no tracking without XR focus");
+    Expect(!TrackingAllowed(XR_SESSION_STATE_FOCUSED, false, true), "no tracking without rendering");
+    Expect(!TrackingAllowed(XR_SESSION_STATE_FOCUSED, true, false), "no tracking without valid views");
+    for (const bool attached : {false, true})
+        Expect(TrackingAllowed(XR_SESSION_STATE_FOCUSED, true, true) &&
+            !InputAllowed(XR_SESSION_STATE_FOCUSED, true, true, attached, false) == attached,
+            "desktop focus gates injection only, never controller tracking");
     XrTime previous{};
     Expect(AdvanceInputClock(previous, 1000000000) == 0.0f, "initial clock");
     Expect(std::fabs(AdvanceInputClock(previous, 1020000000) - 0.02f) < 0.00001f, "clock advances without aiming");

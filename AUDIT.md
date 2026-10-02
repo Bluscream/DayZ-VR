@@ -113,6 +113,11 @@ closed merely because its source was edited.
 - `a44679a`: R04; visibility-test presents do not advance XR frames.
 - `793b40f`: X01/X02/X08 and the specific C01 lifecycle/dump-request races; tests cover
   focus, view validity, and time progression. Broader C02 ownership remains open.
+  Follow-up: that focus gate also suppressed controller tracking (grip/aim poses,
+  ammo quad, rays, debug hand state) whenever DayZ was not the desktop foreground,
+  which is the normal state on the headless rig. Fixed by splitting
+  `TrackingAllowed` (XR focus + rendering + valid views) from `InputAllowed`
+  (adds desktop focus); only injected keys/mouse are released on focus loss.
 - `4e2a1e2`: R03; GUI capture selection resets on observed primary resize. Portable
   sizing regression passes; visual resize behavior still needs live verification.
 - `8d14201`: T01–T03; no shell evaluation of command text, bounded/reaped log followers,

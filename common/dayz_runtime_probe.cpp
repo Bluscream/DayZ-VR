@@ -3622,6 +3622,19 @@ namespace dayz::runtime_probe
             return nullptr;
         }
 
+        const ExternalTunable* g_externalTunables{};
+        std::size_t g_externalTunableCount{};
+
+        const ExternalTunable* FindExternalTunable(const char* name) noexcept
+        {
+            if (!name)
+                return nullptr;
+            for (std::size_t index = 0; index < g_externalTunableCount; ++index)
+                if (g_externalTunables[index].value && _stricmp(g_externalTunables[index].name, name) == 0)
+                    return &g_externalTunables[index];
+            return nullptr;
+        }
+
         double ReadTunable(const Tunable& tunable) noexcept
         {
             switch (tunable.kind)
@@ -3636,8 +3649,19 @@ namespace dayz::runtime_probe
         }
     }
 
+    void RegisterTunables(const ExternalTunable* table, std::size_t count) noexcept
+    {
+        g_externalTunables = count ? table : nullptr;
+        g_externalTunableCount = table ? count : 0;
+    }
+
     bool GetTunable(const char* name, double& value) noexcept
     {
+        if (const ExternalTunable* external = FindExternalTunable(name))
+        {
+            value = external->value->load(std::memory_order_relaxed);
+            return true;
+        }
         const Tunable* tunable = FindTunable(name);
         if (!tunable)
             return false;
@@ -3647,6 +3671,13 @@ namespace dayz::runtime_probe
 
     int SetTunable(const char* name, double value) noexcept
     {
+        if (const ExternalTunable* external = FindExternalTunable(name))
+        {
+            if (!std::isfinite(value) || value < external->minimum || value > external->maximum)
+                return -2;
+            external->value->store(static_cast<float>(value), std::memory_order_relaxed);
+            return 0;
+        }
         const Tunable* tunable = FindTunable(name);
         if (!tunable)
             return -1;
@@ -3685,6 +3716,10 @@ namespace dayz::runtime_probe
     {
         for (const Tunable& tunable : kTunables)
             visit(context, tunable.name, ReadTunable(tunable));
+        for (std::size_t index = 0; index < g_externalTunableCount; ++index)
+            if (g_externalTunables[index].value)
+                visit(context, g_externalTunables[index].name,
+                    g_externalTunables[index].value->load(std::memory_order_relaxed));
     }
 
     bool ClosedLoopAimActive() noexcept
