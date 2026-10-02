@@ -455,7 +455,11 @@ bool OpenXrHost::CreateControllerActions()
         {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
         {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
         {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
-    const auto suggestXyController = [&](const char* profile) {
+    // squeeze: "value" on controllers with an analogue grip, "click" where the
+    // profile only defines a digital squeeze (Vive Cosmos).
+    const auto suggestXyController = [&](const char* profile, const char* squeeze = "value") {
+        const std::string leftSqueeze = std::string("/user/hand/left/input/squeeze/") + squeeze;
+        const std::string rightSqueeze = std::string("/user/hand/right/input/squeeze/") + squeeze;
         suggest(profile, {
             {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
             {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
@@ -463,8 +467,8 @@ bool OpenXrHost::CreateControllerActions()
             {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
             {triggerAction_, path("/user/hand/right/input/trigger/value")},
             {triggerAction_, path("/user/hand/left/input/trigger/value")},
-            {grabAction_, path("/user/hand/left/input/squeeze/value")},
-            {grabAction_, path("/user/hand/right/input/squeeze/value")},
+            {grabAction_, path(leftSqueeze.c_str())},
+            {grabAction_, path(rightSqueeze.c_str())},
             {xButtonAction_, path("/user/hand/left/input/x/click")},
             {yButtonAction_, path("/user/hand/left/input/y/click")},
             {aButtonAction_, path("/user/hand/right/input/a/click")},
@@ -494,18 +498,18 @@ bool OpenXrHost::CreateControllerActions()
         {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
         {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
         {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
-    const auto suggestIfEnabled = [&](const char* extension, const char* profile) {
+    const auto suggestIfEnabled = [&](const char* extension, const char* profile, const char* squeeze = "value") {
         const bool enabled = std::find(enabledOptionalExtensions_.begin(),
             enabledOptionalExtensions_.end(), extension) != enabledOptionalExtensions_.end();
         if (enabled)
-            suggestXyController(profile);
+            suggestXyController(profile, squeeze);
         else
             logging::Info(std::string("Skipping ") + profile + " (runtime lacks " + extension + ")");
     };
     suggestIfEnabled("XR_FB_touch_controller_pro", "/interaction_profiles/facebook/touch_controller_pro");
     suggestIfEnabled("XR_META_touch_controller_plus", "/interaction_profiles/meta/touch_controller_plus");
     suggestIfEnabled("XR_BD_controller_interaction", "/interaction_profiles/bytedance/pico_neo3_controller");
-    suggestIfEnabled("XR_HTC_vive_cosmos_controller_interaction", "/interaction_profiles/htc/vive_cosmos_controller");
+    suggestIfEnabled("XR_HTC_vive_cosmos_controller_interaction", "/interaction_profiles/htc/vive_cosmos_controller", "click");
     suggestIfEnabled("XR_EXT_hp_mixed_reality_controller", "/interaction_profiles/hp/mixed_reality_controller");
 
     XrSessionActionSetsAttachInfo attach(MakeXr<XrSessionActionSetsAttachInfo>(XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO));

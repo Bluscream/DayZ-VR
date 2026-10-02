@@ -167,9 +167,9 @@ detour. Update the entry when you touch the track; keep history in git, not here
   enabled.
 - State (2026-10-02 08:32): the five profile extensions are enabled when the runtime
   exposes them (named as strings, the vendored SDK predates most) and their bindings
-  are suggested only then; Monado exposes all five, four bind, one still returns -22
-  (profile now named in the log, pending the next launch).
-- Next: fix the remaining profile's binding paths; haptics on fire (needs S2 or a
+  are suggested only then; Monado exposes all five and all eight profiles bind (Vive
+  Cosmos only has `squeeze/click`, so its binding set uses that; no -22 left).
+- Next: haptics on fire (needs S2 or a
   draw-call heuristic); gesture reload; two-handed grip.
 
 ## G1. Game and server control for testing (spawn, teleport, vehicles)
