@@ -230,7 +230,23 @@ bool OpenXrHost::CreateInstanceAndSystem()
         return false;
     }
 
-    const char* enabledExtensions[] = { XR_KHR_D3D11_ENABLE_EXTENSION_NAME };
+    // Controller interaction profiles gated behind extensions; suggesting their
+    // bindings without the extension fails with XR_ERROR_PATH_UNSUPPORTED (-22).
+    // Named as strings because the vendored SDK headers predate most of them.
+    static constexpr const char* kOptionalExtensions[]{
+        "XR_FB_touch_controller_pro", "XR_META_touch_controller_plus",
+        "XR_BD_controller_interaction", "XR_HTC_vive_cosmos_controller_interaction",
+        "XR_EXT_hp_mixed_reality_controller"};
+    std::vector<const char*> enabledExtensions{XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    enabledOptionalExtensions_.clear();
+    for (const char* optional : kOptionalExtensions)
+        if (std::any_of(extensions.begin(), extensions.end(), [optional](const auto& extension) {
+                return std::strcmp(extension.extensionName, optional) == 0; }))
+        {
+            enabledOptionalExtensions_.emplace_back(optional);
+            enabledExtensions.push_back(optional);
+            logging::Info(std::string("Enabling optional OpenXR extension ") + optional);
+        }
     logging::Info("Creating OpenXR instance");
     XrInstanceCreateInfo createInfo(MakeXr<XrInstanceCreateInfo>(XR_TYPE_INSTANCE_CREATE_INFO));
     strcpy_s(createInfo.applicationInfo.applicationName, "DayZ OpenXR");
@@ -238,8 +254,8 @@ bool OpenXrHost::CreateInstanceAndSystem()
     strcpy_s(createInfo.applicationInfo.engineName, "DayZ VR Mod");
     createInfo.applicationInfo.engineVersion = 1;
     createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-    createInfo.enabledExtensionCount = 1;
-    createInfo.enabledExtensionNames = enabledExtensions;
+    createInfo.enabledExtensionCount = static_cast<std::uint32_t>(enabledExtensions.size());
+    createInfo.enabledExtensionNames = enabledExtensions.data();
     if (!Check(xrCreateInstance(&createInfo, &instance_), "xrCreateInstance"))
         return false;
 
@@ -402,7 +418,7 @@ bool OpenXrHost::CreateControllerActions()
         info.suggestedBindings = bindings.data();
         const XrResult result = xrSuggestInteractionProfileBindings(instance_, &info);
         if (XR_FAILED(result))
-            logging::XrError("xrSuggestInteractionProfileBindings", result);
+            logging::XrError((std::string("xrSuggestInteractionProfileBindings ") + profile).c_str(), result);
     };
     suggest("/interaction_profiles/oculus/touch_controller", {
         {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
@@ -477,11 +493,19 @@ bool OpenXrHost::CreateControllerActions()
         {thumbstickAction_, path("/user/hand/right/input/thumbstick")},
         {thumbstickClickAction_, path("/user/hand/left/input/thumbstick/click")},
         {thumbstickClickAction_, path("/user/hand/right/input/thumbstick/click")}});
-    suggestXyController("/interaction_profiles/facebook/touch_controller_pro");
-    suggestXyController("/interaction_profiles/meta/touch_controller_plus");
-    suggestXyController("/interaction_profiles/bytedance/pico_neo3_controller");
-    suggestXyController("/interaction_profiles/htc/vive_cosmos_controller");
-    suggestXyController("/interaction_profiles/hp/mixed_reality_controller");
+    const auto suggestIfEnabled = [&](const char* extension, const char* profile) {
+        const bool enabled = std::find(enabledOptionalExtensions_.begin(),
+            enabledOptionalExtensions_.end(), extension) != enabledOptionalExtensions_.end();
+        if (enabled)
+            suggestXyController(profile);
+        else
+            logging::Info(std::string("Skipping ") + profile + " (runtime lacks " + extension + ")");
+    };
+    suggestIfEnabled("XR_FB_touch_controller_pro", "/interaction_profiles/facebook/touch_controller_pro");
+    suggestIfEnabled("XR_META_touch_controller_plus", "/interaction_profiles/meta/touch_controller_plus");
+    suggestIfEnabled("XR_BD_controller_interaction", "/interaction_profiles/bytedance/pico_neo3_controller");
+    suggestIfEnabled("XR_HTC_vive_cosmos_controller_interaction", "/interaction_profiles/htc/vive_cosmos_controller");
+    suggestIfEnabled("XR_EXT_hp_mixed_reality_controller", "/interaction_profiles/hp/mixed_reality_controller");
 
     XrSessionActionSetsAttachInfo attach(MakeXr<XrSessionActionSetsAttachInfo>(XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO));
     attach.countActionSets = 1;
@@ -869,6 +893,7 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     vehicleWheelMaxDegrees_ = (std::clamp)(ReadFloat(L"vehicle", L"wheel_max_degrees", 90.0f), 10.0f, 180.0f);
     vehicleDeadzone_ = (std::clamp)(ReadFloat(L"vehicle", L"deadzone", 0.05f), 0.0f, 0.9f);
     vehicleInvert_ = ReadBoolean(L"vehicle", L"invert", false) ? 1.0f : 0.0f;
+    vehicleRequireGrip_ = ReadBoolean(L"vehicle", L"require_grip", true) ? 1.0f : 0.0f;
     // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
     hostTunables_ = {{
         {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
@@ -886,6 +911,7 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         {"vehicle.wheel_max_degrees", &vehicleWheelMaxDegrees_, 10.0f, 180.0f},
         {"vehicle.deadzone", &vehicleDeadzone_, 0.0f, 0.9f},
         {"vehicle.invert", &vehicleInvert_, 0.0f, 1.0f},
+        {"vehicle.require_grip", &vehicleRequireGrip_, 0.0f, 1.0f},
     }};
     dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
@@ -1048,9 +1074,20 @@ void OpenXrHost::PublishVehicleSteering() noexcept
         return;
     }
     constexpr XrSpaceLocationFlags kPosition = XR_SPACE_LOCATION_POSITION_VALID_BIT;
+    // "Grab the wheel": resting hands must not steer, so both squeezes have to be held.
+    const auto squeezed = [&](std::size_t hand) {
+        if (vehicleRequireGrip_.load(std::memory_order_relaxed) == 0.0f)
+            return true;
+        XrActionStateFloat state(MakeXr<XrActionStateFloat>(XR_TYPE_ACTION_STATE_FLOAT));
+        XrActionStateGetInfo get(MakeXr<XrActionStateGetInfo>(XR_TYPE_ACTION_STATE_GET_INFO));
+        get.action = grabAction_;
+        get.subactionPath = handPaths_[hand];
+        return XR_SUCCEEDED(xrGetActionStateFloat(session_, &get, &state)) && state.isActive &&
+            state.currentState > 0.5f;
+    };
     dayz::vehicle_steering::Hands hands;
-    hands.leftValid = (gripLocations_[0].locationFlags & kPosition) != 0;
-    hands.rightValid = (gripLocations_[1].locationFlags & kPosition) != 0;
+    hands.leftValid = (gripLocations_[0].locationFlags & kPosition) != 0 && squeezed(0);
+    hands.rightValid = (gripLocations_[1].locationFlags & kPosition) != 0 && squeezed(1);
     hands.leftX = gripLocations_[0].pose.position.x;
     hands.leftY = gripLocations_[0].pose.position.y;
     hands.leftZ = gripLocations_[0].pose.position.z;

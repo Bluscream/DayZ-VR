@@ -165,8 +165,12 @@ detour. Update the entry when you touch the track; keep history in git, not here
   the weapon from the head; WMR, Touch and Index binding profiles work. Touch Pro, Touch
   Plus, Pico, Cosmos and HP profiles fail with -22 because their extensions are not
   enabled.
-- Next: enable the matching extensions when available before suggesting those profiles;
-  haptics on fire (needs S2 or a draw-call heuristic); gesture reload; two-handed grip.
+- State (2026-10-02 08:32): the five profile extensions are enabled when the runtime
+  exposes them (named as strings, the vendored SDK predates most) and their bindings
+  are suggested only then; Monado exposes all five, four bind, one still returns -22
+  (profile now named in the log, pending the next launch).
+- Next: fix the remaining profile's binding paths; haptics on fire (needs S2 or a
+  draw-call heuristic); gesture reload; two-handed grip.
 
 ## G1. Game and server control for testing (spawn, teleport, vehicles)
 - State: `enforce/DayZVR_Server` and `scripts/dayz-cmd.sh` implement local-server
@@ -174,9 +178,15 @@ detour. Update the entry when you touch the track; keep history in git, not here
   `--client raise 1` was exercised successfully during the 2026-10-02 simulator run.
   Test-server ports are now published only on loopback, and setup preserves the
   deployed mod/profile and refuses to overwrite a running server.
-- Next: harden command argument limits and empty-hands fallback; use commands to
-  test ammo changes and vehicles. This command channel is for the isolated local
-  test rig; public-server administration/authentication is not implemented.
+- State (2026-10-02 08:30): `hands <class> [mag|-] [rounds]` (drop then create on the
+  next tick, internal magazines filled), `tpto [dx dy dz]`, `enter` (driver seat via
+  CommandHandler), per-model wheel classes; client hooks `raise`, `enter`, `steer`.
+  Used to verify the ammo quad (60+1, 3+1, 0+1, Mosin 4+1, knife) and the vehicle
+  steering/pedal pipeline. Spawned cars are not CE-registered and vanish on reconnect.
+- State (08:32): `give` capped at 50, `info` reports position/direction/alive/vehicle/
+  held item.
+- Next: `exit` (leave vehicle) command; argument length limits. This command channel is for the isolated
+  local test rig; public-server administration/authentication is not implemented.
 
 ## M2. Motion-controlled melee
 - State: idea. DayZ melee is a key press with animation (`MeleeCombat`, `DayZPlayerMeleeFightLogic_LightHeavy`), hit detection server-side from the animation. Controller
@@ -201,18 +211,11 @@ detour. Update the entry when you touch the track; keep history in git, not here
   animations differ in timing.
 
 ## V2. Vehicles: controller steering and grips
-- State: idea. Steering is keyboard (A/D) through the host's controller→key mapping;
-  no analog wheel. `IsInVehicle` reaches the native side via game.txt.
-- Next: (1) spawn a vehicle with G1 and sit in it; (2) native: when `in_vehicle=1`,
-  map controller grip position (both hands on a virtual wheel: angle between the
-  two grip positions, or single-hand angle about the wheel centre) to left/right key
-  pulses proportional to angle (DayZ has no analog steering input; pulse-width the
-  keys per frame like the aim loop does with mouse counts); throttle on trigger,
-  brake on grip; (3) seated recenter (`[comfort]` head height) and view lock to the
-  vehicle yaw option; (4) Enforce side: `CarScript.GetSpeedometer()`, gear, fuel,
-  engine state into game.txt for a wrist dashboard.
-- Open: whether `Car.SetSteering`-style script APIs exist client-side (grep
-  `proto native` in Car/CarScript); analog steering via a virtual gamepad instead.
+- State (superseded below): started as keyboard A/D only; the key-pulse idea and the
+  virtual gamepad were never needed because `Car.SetSteering`/`SetThrottle`/`SetBrake`
+  are script natives that beat the engine's input when called from `CarScript.OnUpdate`.
+- Open (still): seated recenter (`[comfort]` head height) and a view-lock-to-vehicle-yaw
+  option; wrist dashboard from game.txt vehicle data.
 - State (2026-10-02 07:55, test rig): `scripts/dayz-cmd.sh spawn OffroadHatchback`
   (wheels mapped per model: HatchbackWheel, CivSedanWheel, Truck_01_Wheel, <type>_Wheel),
   `tpto [dx dy dz]` stands the player at the driver's door, server `enter` runs
@@ -250,10 +253,14 @@ detour. Update the entry when you touch the track; keep history in git, not here
   mouse buttons, the mod applies `SetThrottle`/`SetBrake` only while a pedal is pressed
   (>0.02) so W/S keep working. Sim: `pedals_valid` flips 0→1 on entering the car,
   values stay 0 (idle sim triggers), no errors; pressed values need real hands.
+- State (08:32): `vehicle.require_grip` (default on) makes the wheel valid only while
+  both squeezes are held (sim: steer_valid 0 with idle grips, 1 when the option is off);
+  game.txt adds `gear= rpm= engine= fuel=` for a dashboard widget.
 - Next: (1) check `SetThrottle` actually beats the engine's own input like steering
-  did (real headset or a sim with scripted trigger values); (2) real-headset tuning of `wheel_max_degrees`/`deadzone`, and a
-  "grab the wheel" gesture (both grips held) so resting hands do not steer; (3) hands
-  visibly on the wheel (hand models) once the hand-model track exists.
+  did (real headset or a sim with scripted trigger values); (2) real-headset tuning of
+  `wheel_max_degrees`/`deadzone`; (3) hands visibly on the wheel (hand models) once the
+  hand-model track exists; (4) wrist dashboard (Enforce widget or native quad) from the
+  new game.txt keys; engine start/horn/lights on buttons while driving.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash

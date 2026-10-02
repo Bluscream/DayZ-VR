@@ -2,7 +2,8 @@
 // executes each line against the first connected player, deletes the file and appends
 // results to $profile:dayzvr/cmd.log (read back by scripts/dayz-cmd.sh).
 //
-//   give <class> [count]       item(s) into the inventory (ground if full)
+//   give <class> [count]       item(s) into the inventory (ground if full), count <= 50
+//   info                       position, direction, alive, vehicle, held item
 //   hands <class> [magclass] [rounds]   weapon into hands with an attached magazine
 //                              (default magazine from the weapon config, full unless
 //                              rounds is given; "-" keeps the default class), or any item;
@@ -102,6 +103,15 @@ class DayZVRServerCmd
 			return TeleportToVehicle(player, words);
 		if (verb == "enter")
 			return EnterVehicle(player);
+		if (verb == "info")
+		{
+			string info = "pos=" + player.GetPosition().ToString() + " dir=" + player.GetDirection().ToString();
+			info += " alive=" + player.IsAlive().ToString() + " in_vehicle=" + player.IsInVehicle().ToString();
+			EntityAI held = player.GetHumanInventory().GetEntityInHands();
+			if (held)
+				info += " hands=" + held.GetType();
+			return info;
+		}
 		if (verb == "heal")
 			return Heal(player);
 		if (verb == "time")
@@ -122,7 +132,7 @@ class DayZVRServerCmd
 			return "usage: give <class> [count]";
 		int count = 1;
 		if (words.Count() > 2)
-			count = words[2].ToInt();
+			count = Math.Clamp(words[2].ToInt(), 1, 50);
 		int created = 0;
 		for (int i = 0; i < count; i++)
 		{

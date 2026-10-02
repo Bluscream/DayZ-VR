@@ -151,6 +151,9 @@ private:
     XrAction aimPoseAction_{XR_NULL_HANDLE};
     XrAction triggerAction_{XR_NULL_HANDLE};
     XrAction grabAction_{XR_NULL_HANDLE};
+    // Optional instance extensions the runtime exposed and we enabled (controller
+    // profile extensions); interaction profiles are suggested only for these.
+    std::vector<std::string> enabledOptionalExtensions_;
     XrAction xButtonAction_{XR_NULL_HANDLE};
     XrAction yButtonAction_{XR_NULL_HANDLE};
     XrAction aButtonAction_{XR_NULL_HANDLE};
@@ -199,7 +202,8 @@ private:
     std::atomic<float> vehicleWheelMaxDegrees_{90.0f};
     std::atomic<float> vehicleDeadzone_{0.05f};
     std::atomic<float> vehicleInvert_{0.0f};
-    std::array<dayz::runtime_probe::ExternalTunable, 15> hostTunables_{};
+    std::atomic<float> vehicleRequireGrip_{1.0f};  // both squeeze > 0.5 to hold the wheel
+    std::array<dayz::runtime_probe::ExternalTunable, 16> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

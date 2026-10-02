@@ -102,6 +102,11 @@ class DayZVRBridge
 			FPrintln(file, "steering=" + car.GetSteering().ToString());
 			FPrintln(file, "speed=" + car.GetSpeedometer().ToString());
 			FPrintln(file, "driver=" + BoolText(car.CrewDriver() == player));
+			// Dashboard data for a wrist/dash widget (V2).
+			FPrintln(file, "gear=" + car.GetGear().ToString());
+			FPrintln(file, "rpm=" + car.EngineGetRPM().ToString());
+			FPrintln(file, "engine=" + BoolText(car.EngineIsOn()));
+			FPrintln(file, "fuel=" + car.GetFluidFraction(CarFluid.FUEL).ToString());
 		}
 		// Fists (nothing in hands) or a melee weapon: the native side may turn controller
 		// swings into attacks ([melee] motion_swing).
