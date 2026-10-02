@@ -1,6 +1,7 @@
 #include "openxr_host.hpp"
 
 #include "ammo_display.hpp"
+#include "xr_frame_policy.hpp"
 #include "comfort.hpp"
 #include "script_bridge.hpp"
 
@@ -178,7 +179,7 @@ OpenXrHost& OpenXrHost::Instance() noexcept
 
 bool OpenXrHost::DumpEyeCaptures() noexcept
 {
-    if (!gameFrameSource_)
+    if (!initialized_.load())
         return false;
     eyeDumpRequested_.store(true, std::memory_order_release);
     return true;
@@ -950,8 +951,10 @@ void OpenXrHost::PollEvents()
         {
             const auto* changed = reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
             sessionState_ = changed->state;
+            if (sessionState_ != XR_SESSION_STATE_FOCUSED)
+                ReleaseControllerKeys();
             std::ostringstream message;
-            message << "XrSessionState = " << static_cast<int>(sessionState_);
+            message << "XrSessionState = " << static_cast<int>(sessionState_.load());
             logging::Info(message.str());
             if (sessionState_ == XR_SESSION_STATE_READY && !sessionRunning_)
             {
@@ -991,6 +994,17 @@ void OpenXrHost::AnchorGuiQuad(const XrPosef& headPose) noexcept
 
 void OpenXrHost::ReleaseControllerKeys() noexcept
 {
+    leftStickClickDown_ = false;
+    snapTurnArmed_ = true;
+    lastTurnTime_ = 0;
+    guiRayValid_ = false;
+    for (auto& location : gripLocations_)
+        location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
+    for (auto& location : aimLocations_)
+        location = MakeXr<XrSpaceLocation>(XR_TYPE_SPACE_LOCATION);
+    dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
+    const auto comfort = dayz::stereo_state::GetComfortVignette();
+    dayz::stereo_state::SetComfortVignette(0.0f, comfort.radius);
     constexpr WORD keys[4]{'W', 'A', 'S', 'D'};
     for (std::size_t index = 0; index < movementKeys_.size(); ++index)
         if (movementKeys_[index])
@@ -1058,13 +1072,22 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
 void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
 {
     if (!controllerInputEnabled_ || actionSet_ == XR_NULL_HANDLE)
+    {
+        ReleaseControllerKeys();
         return;
+    }
     XrActiveActionSet active{actionSet_, XR_NULL_PATH};
     XrActionsSyncInfo sync(MakeXr<XrActionsSyncInfo>(XR_TYPE_ACTIONS_SYNC_INFO));
     sync.countActiveActionSets = 1;
     sync.activeActionSets = &active;
-    if (!Check(xrSyncActions(session_, &sync), "xrSyncActions"))
+    const XrResult synchronized = xrSyncActions(session_, &sync);
+    if (synchronized != XR_SUCCESS)
+    {
+        if (XR_FAILED(synchronized))
+            logging::XrError("xrSyncActions", synchronized);
+        ReleaseControllerKeys();
         return;
+    }
     static XrPath loggedInteractionProfile{XR_NULL_PATH};
     XrInteractionProfileState interaction(MakeXr<XrInteractionProfileState>(XR_TYPE_INTERACTION_PROFILE_STATE));
     if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(session_, handPaths_[0], &interaction)) &&
@@ -1120,8 +1143,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
         }
     const bool turning = std::fabs(rightStick.x) > controllerDeadzone_;
     const bool moving = desired[0] || desired[1] || desired[2] || desired[3];
-    dayz::comfort::Update(moving, turning && controllerSnapTurn_ <= 0.0f,
-        lastTurnTime_ != 0 ? static_cast<float>(displayTime - lastTurnTime_) * 1e-9f : 0.0f);
+    const float inputSeconds = dayz::xr::AdvanceInputClock(lastTurnTime_, displayTime);
+    dayz::comfort::Update(moving, turning && controllerSnapTurn_ <= 0.0f, inputSeconds);
     if (dayz::runtime_probe::ClosedLoopAimActive())
     {
         // With the closed loop owning DayZ's mouse camera, stick turns rotate
@@ -1139,13 +1162,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible)
             else if (!turning)
                 snapTurnArmed_ = true;
         }
-        else if (turning && lastTurnTime_ != 0)
-        {
-            const float seconds = (std::clamp)(
-                static_cast<float>(displayTime - lastTurnTime_) * 1e-9f, 0.0f, 0.1f);
-            dayz::runtime_probe::AddAimYawOffset(-rightStick.x * controllerTurnRate_ * kDegToRad * seconds);
-        }
-        lastTurnTime_ = displayTime;
+        else if (turning)
+            dayz::runtime_probe::AddAimYawOffset(-rightStick.x * controllerTurnRate_ * kDegToRad * inputSeconds);
     }
     else if (turning)
         SendMouseTurn(static_cast<LONG>(std::lround(rightStick.x * controllerTurnScale_)));
@@ -1329,11 +1347,23 @@ void OpenXrHost::RenderFrame()
     XrFrameState frameState(MakeXr<XrFrameState>(XR_TYPE_FRAME_STATE));
     const auto frameStart = std::chrono::steady_clock::now();
     if (!Check(xrWaitFrame(session_, &waitInfo, &frameState), "xrWaitFrame"))
+    {
+        ReleaseControllerKeys();
+        dayz::stereo_state::InvalidateTracking();
+        std::scoped_lock debugLock(debugMutex_);
+        debugSnapshot_.hmdValid = false;
         return;
+    }
     timing_.waitFrame += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     XrFrameBeginInfo beginInfo(MakeXr<XrFrameBeginInfo>(XR_TYPE_FRAME_BEGIN_INFO));
     if (!Check(xrBeginFrame(session_, &beginInfo), "xrBeginFrame"))
+    {
+        ReleaseControllerKeys();
+        dayz::stereo_state::InvalidateTracking();
+        std::scoped_lock debugLock(debugMutex_);
+        debugSnapshot_.hmdValid = false;
         return;
+    }
 
     std::array<XrCompositionLayerProjectionView, 2> projectionViews{{
         (MakeXr<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW)),
@@ -1345,10 +1375,28 @@ void OpenXrHost::RenderFrame()
     locate.displayTime = frameState.predictedDisplayTime;
     locate.space = localSpace_;
     const bool located = Check(xrLocateViews(session_, &locate, &viewState,
-        static_cast<std::uint32_t>(views_.size()), &viewCount, views_.data()), "xrLocateViews") && viewCount == 2;
+        static_cast<std::uint32_t>(views_.size()), &viewCount, views_.data()), "xrLocateViews") &&
+        dayz::xr::ValidStereoViews(viewCount, viewState.viewStateFlags);
 
     const bool guiVisible = gameSwapChain_ && guiQuadEnabled_ && guiSwapchain_.handle != XR_NULL_HANDLE &&
         dayz::runtime_probe::IsGuiQuadVisible();
+    const HWND foreground = dayz::runtime_probe::RealForegroundWindow();
+    DWORD foregroundProcess{};
+    const bool desktopFocused = foreground && GetWindowThreadProcessId(foreground, &foregroundProcess) &&
+        foregroundProcess == GetCurrentProcessId();
+    if (dayz::xr::InputAllowed(sessionState_.load(), frameState.shouldRender != XR_FALSE,
+            located, gameSwapChain_ != nullptr, desktopFocused))
+        SyncControllerInput(frameState.predictedDisplayTime, guiVisible);
+    else
+        ReleaseControllerKeys();
+    if (!located || !frameState.shouldRender)
+    {
+        dayz::stereo_state::InvalidateTracking();
+        std::scoped_lock debugLock(debugMutex_);
+        debugSnapshot_.hmdValid = false;
+        debugSnapshot_.grip = {};
+        debugSnapshot_.aim = {};
+    }
     bool projectionReady = false;
     if (frameState.shouldRender && located)
     {
@@ -1364,7 +1412,6 @@ void OpenXrHost::RenderFrame()
             orientation.z, orientation.w);
         if (guiVisible && (!guiQuadWasVisible_ || !guiQuadAnchored_))
             AnchorGuiQuad(views_[0].pose);
-        SyncControllerInput(frameState.predictedDisplayTime, guiVisible);
         if (gameFrameSource_)
             gameFrameSource_->PrepareFrame(dayz::stereo_state::RenderedEye());
         if (gameFrameSource_ && eyeDumpRequested_.exchange(false, std::memory_order_acq_rel))
@@ -1391,7 +1438,7 @@ void OpenXrHost::RenderFrame()
             lastFps_ = seconds > 0.0 ? 120.0 / seconds : 0.0;
             pose << "pose q=(" << q.x << ',' << q.y << ',' << q.z << ',' << q.w
                  << ") ypr=(" << yaw << ',' << pitch << ',' << roll << ") fps="
-                 << lastFps_ << " state=" << static_cast<int>(sessionState_);
+                 << lastFps_ << " state=" << static_cast<int>(sessionState_.load());
             if (timing_.frames > 0)
             {
                 // Where the frame time goes inside the OpenXR calls (ms per frame, averaged
@@ -1409,7 +1456,7 @@ void OpenXrHost::RenderFrame()
             std::scoped_lock debugLock(debugMutex_);
             debugSnapshot_.initialized = initialized_;
             debugSnapshot_.sessionRunning = sessionRunning_;
-            debugSnapshot_.sessionState = static_cast<int>(sessionState_);
+            debugSnapshot_.sessionState = static_cast<int>(sessionState_.load());
             debugSnapshot_.fps = lastFps_;
             debugSnapshot_.hmdValid = true;
             debugSnapshot_.hmdPose = views_[0].pose;
@@ -1644,10 +1691,10 @@ OpenXrHost::DebugSnapshot OpenXrHost::GetDebugSnapshot() const noexcept
 {
     std::scoped_lock debugLock(debugMutex_);
     DebugSnapshot snapshot = debugSnapshot_;
-    // Lifecycle flags are cheap to read live; the pose data stays frame-coherent.
+    // Lifecycle fields are atomic; pose tuples remain protected by debugMutex_.
     snapshot.initialized = initialized_;
     snapshot.sessionRunning = sessionRunning_;
-    snapshot.sessionState = static_cast<int>(sessionState_);
+    snapshot.sessionState = static_cast<int>(sessionState_.load());
     return snapshot;
 }
 
@@ -1659,8 +1706,15 @@ void OpenXrHost::Tick() noexcept
     PollEvents();
     if (sessionRunning_ && !shouldExit_)
         RenderFrame();
-    if (shouldExit_)
+    if (shouldExit_ || !sessionRunning_)
+    {
         ReleaseControllerKeys();
+        dayz::stereo_state::InvalidateTracking();
+        std::scoped_lock debugLock(debugMutex_);
+        debugSnapshot_.hmdValid = false;
+        debugSnapshot_.grip = {};
+        debugSnapshot_.aim = {};
+    }
 }
 
 void OpenXrHost::Shutdown() noexcept

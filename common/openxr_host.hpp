@@ -129,7 +129,7 @@ private:
     XrSession session_{XR_NULL_HANDLE};
     XrSpace localSpace_{XR_NULL_HANDLE};
     XrSpace viewSpace_{XR_NULL_HANDLE};
-    XrSessionState sessionState_{XR_SESSION_STATE_UNKNOWN};
+    std::atomic<XrSessionState> sessionState_{XR_SESSION_STATE_UNKNOWN};
     PFN_xrGetD3D11GraphicsRequirementsKHR getD3D11Requirements_{};
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
@@ -206,7 +206,7 @@ private:
     WORD hotbarPreviousKey_{};
     WORD hotbarNextKey_{};
     unsigned hotbarSlot_{1};
-    bool initialized_{};
-    bool sessionRunning_{};
-    bool shouldExit_{};
+    std::atomic<bool> initialized_{};
+    std::atomic<bool> sessionRunning_{};
+    std::atomic<bool> shouldExit_{};
 };
