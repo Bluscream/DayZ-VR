@@ -4,7 +4,7 @@ description: >-
   Frame structure, view prepare/execute/finalize, projection dispatch, camera FrameBase, FOV, HUD scale and GUI capture addresses of DayZ 1.29.163709, and the engine bugs the VR proxy works around.
 game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
 created: 2026-10-02T17:11+0200
-last_edited: 2026-10-02T17:11+0200
+last_edited: 2026-10-02T19:50+0200
 ---
 
 # Rendering (DayZ 1.29.163709)
@@ -43,6 +43,29 @@ third thread crashed d3d11. The number of backbuffer-sized clears per frame is n
 
 The same primary FrameBase getter is consumed by gameplay aiming and deferred rendering,
 which is why head rotation written there moves both the image and the aim ray.
+
+### Where the camera comes from each frame (1.29.163709)
+
+- The **camera manager** (`0x1007CE0`) keeps the gameplay camera transform at
+  `manager+0x50` (3x3 rotation, rows at `+0x50/+0x5C/+0x68`) and `manager+0x74` (position).
+  The **primary camera object** lives at `engine(0x42638E0)+0x118`.
+- The camera FOV update `0x4B7AD0` is the first thing the in-world frame function
+  `0x8E77C0` calls. It compares the manager transform with the camera's `+0x08..+0x37`,
+  copies it in through the camera's vtable slot 2 (`(*camera)[2](camera, manager+0x50)`),
+  then calls the FrameBase refresh `0x7A0330` (call at `0x4B7DE3`).
+- The FrameBase refresh `0x7A0330` builds everything derived from the camera: the view
+  matrix at `camera+0x108` from the camera's vtable slot 9 getter (`0x9235A0`, which
+  inverts the camera's own 3x4 `+0x08..+0x37`, translation included, through
+  `0xA4D200`), its inverse, the frustum planes `+0x1B0..+0x22C` (from `+0x2C` and the
+  rotation rows) and the FOV scale factors. It is called again inside the projection
+  dispatch `0x952000` (call at `0x952023`) and from the inventory preview `0x5C4C79`.
+- Frame order inside `0x8E77C0`: FOV update/refresh (`0x4B7AD0`) → scene passes
+  `0x953240`, `0x957BF0`, `0x957100`, `0x958150`, `0x958D40` on the scene context
+  `frame+0xA0` → preparation `0x85FD20` (mode-0 prepare, projection dispatch with the
+  second refresh) → `0x861DE0`, `0x6DB660`, `0x6DB910/0x6DC7D0` per layer → world render
+  `0x8E7650` → post/GUI. A camera translation written only in the projection dispatch
+  therefore comes after the scene passes; see TASKS R5 for the experiment that writes it
+  in the early refresh instead.
 
 ## HUD and GUI
 

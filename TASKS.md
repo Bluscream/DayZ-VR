@@ -456,7 +456,45 @@ Findings, each with its fix state:
   (3) per-frame `{frame id, predicted time, views}` record, submit those views; (4) game
   gets flattened yaw only through the direct aim axis once per frame; (5) camera-freeze and
   engine-rotation-lerp diagnostics. Keep the FrameBase path behind a flag until R5 is proven (builds on the R1 findings: scene preparation is the per-eye unit).
-- State: not started (2026-10-02 18:35).
+- State (2026-10-02 19:30, sim only from here on): Ghidra findings: the FrameBase refresh
+  `0x7A0330` builds the view matrix from the camera's vtable slot 9 getter `0x9235A0`,
+  which inverts the camera's own 3x4 at `camera+0x08..+0x37` (rotation and the `+0x2C`
+  translation) via `0xA4D200`; the frustum planes (`+0x1B0..+0x22C`) use `+0x2C` too. So
+  the translation does enter the view matrix. The in-world frame function `0x8E77C0`
+  runs the scene functions `0x953240`, `0x957BF0`, `0x957100`, `0x958150`, `0x958D40`
+  with the active camera (`0x4B6BE0`) BEFORE the preparation `0x85FD20` (which holds the
+  mode-0 prepare and the projection dispatch where the proxy wrote the translation).
+  Hypothesis: object placement is fixed relative to the camera position in those earlier
+  passes, so a translation written in the dispatch never reached the image. Experiment:
+  `[stereo] prepare_translation` (new, live) also applies the eye/head translation in the
+  prepare hook (mode 0 and 1). If that is not enough, hook `0x8E77C0` entry and apply the
+  whole HMD pose to the active camera there (one consistent camera per frame; the pose
+  record for that frame is taken at the same point).
+- Result (2026-10-02 20:10): **eye separation reaches the image.** With the pose written
+  in the early FrameBase refresh (`0x7A0330` called from `0x4B7DE8` at frame start, before
+  the scene passes), `dump-eyes` shows a horizontal shift of the near bands that is linear
+  in the separation (0 m: 0 px, 0.3 m: 64 px, 1.0 m: 228 px) and zero for the far band.
+  The direction says the capture labelled eye 1 was rendered with eye 0's camera: the
+  eye toggled at Present while the render thread presents the frame prepared two frames
+  earlier. Implemented frame records (`stereo_state::BeginGameFrame` at the early refresh
+  freezes one HMD sample per game frame with the eye and both view poses; Present looks
+  the record up `frame_lag` frames back for the capture's eye and the host submits that
+  record's view pose with the image: `[stereo] frame_records`, `frame_lag`,
+  `submit_rendered_pose`). Camera code now reads the frozen sample, so both refreshes of a
+  frame see one pose. `frame_lag` measured by the parallax sign at 1 m separation
+  (`scratchpad/lagtest.sh 0 1 2 3`): lags 0/2 give the swapped sign, 1/3 the right one, so the
+  depth is 1 (default now 1; the log's "head yaw moved since render" stays under 0.2 deg).
+  Verified after the rebuild: lag 1 at 1 m gives +80/+148 px (middle/bottom bands), at the
+  real 0.064 m +16/+24 px, far band 0; the deployed ini runs the rendering-only preset
+  (`scripts/ini-preset.sh rendering-only`; the regression haptic step fails by design
+  while controls are off). Next: headset check of smoothness with this build, then head
+  position scale and the pitch/roll render-only path; later native double render (R1).
+- Mouse look: `[input] mouse_look=false` makes the aim axis report only the VR rate
+  (both pair orders handled); deployed ini runs with `hmd_native_aim=false`,
+  `hmd_aim_closed_loop=false`, so only the headset path rotates the view (user request).
+- Verification recipe (sim): `camera_separation=1.0`, `dump-eyes`, then
+  `scratchpad/eyeshift.py` (normalised cross-correlation per band) on the two BMPs; a
+  real eye offset shows as opposite horizontal shifts that grow for near geometry.
 - Open: the axis-pair clamp constants (`DAT_140C8AB80/64`) may cap large per-frame head
   turns at high rates; the registry's own per-frame evaluation is still unlocated.
 
