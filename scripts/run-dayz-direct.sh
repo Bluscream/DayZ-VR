@@ -12,10 +12,10 @@
 # Proton log to build/logs/steam-221100.log. Stop it with scripts/build.sh --stop.
 # Before each start, old output is pruned so nothing grows without bound: DayZ's
 # crash/script/RPT logs and minidumps keep the newest KEEP_RUNS (default 3) of each
-# kind, dayz_openxr.log is rotated to .1 once it passes LOG_ROTATE_MB (default 64),
-# build/logs screenshots keep the newest 10 and deploy backups the newest 5.
-# The line number of dayz_openxr.log at launch is written to
-# build/logs/openxr-log-offset.txt for scripts/dayz-status.sh.
+# kind, dayz_openxr.log of the previous run is moved to dayz_openxr.log.1 (the one before
+# is dropped), build/logs screenshots keep the newest 10 and deploy backups the newest 5.
+# build/logs/openxr-log-offset.txt (0 after the move) tells scripts/dayz-status.sh where
+# this run's log starts.
 # Environment overrides: DAYZ_DIR, STEAM_LIBRARY (library holding compatdata/221100),
 # STEAM_ROOT (client install, default ~/.local/share/Steam), PROTON_DIR, SLR_DIR.
 set -euo pipefail
@@ -61,7 +61,6 @@ mkdir -p "$log_dir"
 
 # --- prune past output ------------------------------------------------------------
 keep_runs="${KEEP_RUNS:-3}"
-rotate_mb="${LOG_ROTATE_MB:-64}"
 appdata_dayz="$compat_data/pfx/drive_c/users/steamuser/AppData/Local/DayZ"
 prune_newest() {
   # prune_newest <keep> <dir> <glob>: delete all but the newest <keep> matches.
@@ -82,12 +81,13 @@ if [[ -d "$project_dir/build/deploy-backup" ]]; then
     < <(find "$project_dir/build/deploy-backup" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +6)
 fi
 openxr_log="$dayz_dir/dayz_openxr.log"
-if [[ -f "$openxr_log" ]] && (( $(stat -c %s "$openxr_log") > rotate_mb * 1024 * 1024 )); then
+if [[ -f "$openxr_log" ]]; then
+  # One run per file: the previous run stays readable as .1, older ones go.
   mv -f -- "$openxr_log" "$openxr_log.1"
-  say "rotated dayz_openxr.log (> ${rotate_mb} MB) to dayz_openxr.log.1"
+  say "moved the previous dayz_openxr.log ($(du -h "$openxr_log.1" | cut -f1)) to dayz_openxr.log.1"
 fi
 rm -f -- "$dayz_dir"/dayz_openxr_eye*.bmp
-{ [[ -f "$openxr_log" ]] && wc -l < "$openxr_log" || echo 0; } > "$log_dir/openxr-log-offset.txt"
+echo 0 > "$log_dir/openxr-log-offset.txt"
 # ----------------------------------------------------------------------------------
 
 env_list=(
