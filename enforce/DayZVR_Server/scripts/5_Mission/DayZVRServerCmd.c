@@ -3,8 +3,9 @@
 // results to $profile:dayzvr/cmd.log (read back by scripts/dayz-cmd.sh).
 //
 //   give <class> [count]       item(s) into the inventory (ground if full)
-//   hands <class> [magclass]   weapon into hands with a full attached magazine
-//                              (default magazine from the weapon config), or any item;
+//   hands <class> [magclass] [rounds]   weapon into hands with an attached magazine
+//                              (default magazine from the weapon config, full unless
+//                              rounds is given; "-" keeps the default class), or any item;
 //                              a held item is dropped first and the creation runs
 //                              on the next tick (two "->" lines in cmd.log)
 //   spawn <class> [dx dy dz]   object in front of the player (vehicles get wheels,
@@ -130,7 +131,7 @@ class DayZVRServerCmd
 	protected string Hands(PlayerBase player, array<string> words)
 	{
 		if (words.Count() < 2)
-			return "usage: hands <class> [magclass]";
+			return "usage: hands <class> [magclass|-] [rounds]";
 		EntityAI current = player.GetHumanInventory().GetEntityInHands();
 		if (current)
 		{
@@ -150,11 +151,13 @@ class DayZVRServerCmd
 		if (!weapon)
 			return "in hands: " + words[1];
 		string magazine = "";
-		if (words.Count() > 2)
+		if (words.Count() > 2 && words[2] != "-")
 			magazine = words[2];
 		Magazine mag = weapon.SpawnAttachedMagazine(magazine);
 		if (!mag)
 			return "in hands: " + words[1] + " (no magazine spawned)";
+		if (words.Count() > 3)
+			mag.ServerSetAmmoCount(words[3].ToInt());
 		return "in hands: " + words[1] + " with " + mag.GetType() + " (" + mag.GetAmmoCount().ToString() + " rounds)";
 	}
 

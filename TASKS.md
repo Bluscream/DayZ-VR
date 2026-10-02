@@ -124,8 +124,11 @@ detour. Update the entry when you touch the track; keep history in git, not here
   *tracking* when the DayZ window was not the foreground, which hid the quad, the rays
   and the debug hand poses; `TrackingAllowed` now gates poses, `InputAllowed` only
   key/mouse injection.
-- Next: verify empty/low ammo colours, magazine changes and weapon switching on the
-  native quad; verify physical-controller placement/readability (sim grips sit at the
+- State (07:15): magazine changes and low ammo verified on the sim: `hands M4A1 - 3`
+  shows amber "3+1", `hands M4A1 - 0` amber "0+1" (red only when nothing is loaded),
+  text re-rasterises on change (`build/logs/ammo-quad-3plus1-amber.png`).
+- Next: verify weapon switching (melee/none hides the quad) and the red state on the
+  quad; verify physical-controller placement/readability (sim grips sit at the
   frame edge, so the quad clips there). Keep the Enforce label available as the
   fallback. Fix bridge freshness/internal-magazine audit
   findings before treating displayed values as reliable for every weapon.
@@ -298,6 +301,7 @@ add to tasks list: either find a way to reuse existing ui for our vr mod options
 remember that i told the other agent that titanfall2vr is the gold-standard for vr mods (full native stereo rendering, full motioncontrols with many gestures, holsters on body for weapons, grenades, mags (manual reload), backpack over shoulder for opening inventory or smth, controller held/controlled steering wheels, gesture based weapon attachment toggle/modify, dragging door handles to enter vehicle at that seat, grabbing building door handles to open/close doors, crouch, prone, (mantle?), and so much more, this should become the best vr mod it can be
 if you get stuck getting stereo to work, maybe look at some existing vr mod code that is locally cloned, online, or clone yourself to .references/
 i think the other agent also started decompiling some parts of the dayz binary if that helps at all uwu
+hand tracking also means finger curling and hand tracking support as much as possible, and obviously ingame hands must match irl hands/controller placement/rotation
 
 last agent response:
 Deployed. Adding the in-game settings UI track to TASKS.md and relaunching in the same step.
