@@ -214,6 +214,56 @@ detour. Update the entry when you touch the track; keep history in git, not here
   (currently a scratch script); automated regression run (launch, join, measure, stop).
 
 
+## Q1. Native VR quality target and interaction roadmap
+- State: user names Titanfall2VR as the quality benchmark. The interactions below
+  are requirements for this project, not a verified feature inventory of another mod.
+  All tracks remain revisitable; improve their State/Next/Open entries as evidence changes.
+- Next: prioritize correct native stereo and 6DoF rendering (R1), reliable tracked
+  hands/input ownership, then weapon handling and world interactions. Every feature
+  needs an optional setting, loss-of-tracking cancellation, calibration, and local
+  simulator tests where feasible plus physical-controller verification.
+- Acceptance: two eye views from the same simulation tick with actual world parallax;
+  no double gameplay updates; no accumulated input on focus loss; honest reporting
+  of headset-only gaps. Depth reprojection remains a separately labelled fallback.
+
+## M3. Body inventory, holsters and physical reloads
+- State: desired; no body-slot or manual-reload implementation yet.
+- Next: body-relative calibrated slots for weapons, grenades and magazines; shoulder
+  reach opens backpack/inventory; grip/release with explicit object ownership and
+  haptic feedback. Add magazine extraction/insertion, chamber/bolt gestures and
+  two-handed weapon support through validated DayZ actions, respecting inventory,
+  server authority and each weapon's reload state.
+- Open: reliable body pose from HMD + controllers; seated/left-handed accessibility;
+  avoiding accidental grabs, duplicate items and animation/gameplay desynchronization.
+
+## M4. Physical world and attachment interactions
+- State: desired; keyboard interaction is the existing fallback.
+- Next: locate a nearby door handle and bind grip + drag to open/close; vehicle
+  handle chooses the correct seat; attachment gestures select/toggle/modify only
+  compatible attachments. Steering/grips remain V2; gesture melee remains M2.
+- Open: script/native interaction targets, handle transforms, server validation,
+  reach constraints and compatibility with locked doors/occupied seats.
+
+## M5. Physical stance and traversal
+- State: desired; crouch/prone/mantle gesture mapping is not implemented.
+- Next: calibrated standing/seated height and hysteresis for crouch; explicit prone
+  gesture and recovery; investigate mantle/climb through existing DayZ actions.
+  Headset collision, body collision and render-only head offsets must agree.
+- Open: safe threshold calibration, accessibility, accidental transitions, whether
+  engine mantle supports reliable hand-driven input without replaying gameplay ticks.
+
+## R4. Reference-driven stereo investigation
+- State: existing Ghidra project and decompilations in `build/ghidra/`; frame function
+  `0x8E77C0`, preparation `0x85FD20`, renderer prepare `0x44F5A0`, camera refresh
+  `0x7A0330` already available. Reuse them before importing the binary again.
+- Next: compare locally cloned UEVR/REFramework stereo view setup and target ownership;
+  inspect additional public VR-mod source if needed, saving new clones under
+  `.references/` on Data. Follow camera copies and command allocation from scene
+  preparation to D3D submission before choosing the per-eye hook.
+- Open: cached camera matrices versus live camera fields; duplicate-pass reset rules;
+  pass-completion marker on the actual D3D render thread.
+
+
 
 additional prompts by user (might be implemented):
 
@@ -230,6 +280,9 @@ if theres any documentiation on enforce script and dayz sa modding in general, s
 if vppadmintools was running on the server, would that mean we can use our mods internal access to use it to spawn things/heal/etc from our client while developing without the need for ui interaction?
 why are my hands spazzing out so much when the game has focus, is that a side effect of mouse control or emulation? or a rea lbug
 add to tasks list: either find a way to reuse existing ui for our vr mod options, or add something similar to imgui (popular option but i dont think very vr friendly; uevr has a vr friendly overlay for its settings) where all mod settings can be edited directly ingame (try to make as many settings possible to change at runtime)
+remember that i told the other agent that titanfall2vr is the gold-standard for vr mods (full native stereo rendering, full motioncontrols with many gestures, holsters on body for weapons, grenades, mags (manual reload), backpack over shoulder for opening inventory or smth, controller held/controlled steering wheels, gesture based weapon attachment toggle/modify, dragging door handles to enter vehicle at that seat, grabbing building door handles to open/close doors, crouch, prone, (mantle?), and so much more, this should become the best vr mod it can be
+if you get stuck getting stereo to work, maybe look at some existing vr mod code that is locally cloned, online, or clone yourself to .references/
+i think the other agent also started decompiling some parts of the dayz binary if that helps at all uwu
 
 last agent response:
 Deployed. Adding the in-game settings UI track to TASKS.md and relaunching in the same step.
