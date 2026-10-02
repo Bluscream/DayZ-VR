@@ -103,8 +103,16 @@ detour. Update the entry when you touch the track; keep history in git, not here
 ## U1. Immersive UI
 - State: GUI quad (world-locked menu/inventory), HUD safe-area and scale overrides,
   controller rays. No world-anchored widgets.
-- Next: ammo counter quad attached to the right controller grip (needs S2 data), then
-  optional HUD elements as controller/wrist-anchored quads; all behind ini flags.
+- State (2026-10-02): Enforce-side ammo label exists (`DayZVRAmmoCounter.c`, `[bridge]
+  ammo_counter`). Finding: the first-person weapon is a separate hands model drawn
+  relative to the camera; the weapon *entity* position (GetPosition, ModelToWorld of the
+  "magazine" selection) is the body-attached third-person model and projects nowhere
+  near the drawn gun, so the label uses a fixed offset from the aim point (which follows
+  the native view offset) and hides while lowered.
+- Next: native ammo counter quad attached to the right controller grip using the
+  bridge's ammo/chamber values (true "next to the magazine" in VR, works with
+  controller aim), then optional HUD elements as controller/wrist-anchored quads; all
+  behind ini flags. Keep the Enforce label as the no-native-UI fallback.
 
 ## U2. In-game settings UI (edit every mod setting at runtime)
 - State: settings live in `dayz_openxr.ini`; the `[stereo]`/`[gui]`/`[comfort]`-style

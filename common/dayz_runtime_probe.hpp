@@ -45,6 +45,18 @@ namespace dayz::runtime_probe
         float aimPitchGain{};
     };
     DebugSnapshot GetDebugSnapshot() noexcept;
+
+    // HUD content rectangle (fractions of the backbuffer) the proxy wrote into DayZ's
+    // renderer: GUI widget coordinates 0..1 span this rectangle, not the full frame.
+    struct HudContentRect
+    {
+        float left{};
+        float top{};
+        float width{1.0f};
+        float height{1.0f};
+        bool valid{};
+    };
+    HudContentRect GetHudContentRect() noexcept;
     // Tunable names are "section.key" as in dayz_openxr.ini. Booleans use 0/1.
     bool GetTunable(const char* name, double& value) noexcept;
     // Returns 0 on success, -1 for an unknown name, -2 for a rejected value.

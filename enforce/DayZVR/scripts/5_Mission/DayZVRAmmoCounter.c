@@ -8,6 +8,15 @@ class DayZVRAmmoCounter
 	protected TextWidget m_Text;
 	protected int m_LastAmmo = -2;
 	protected string m_LastText;
+	// Last computed label position and visibility, reported in game.txt for the host.
+	static vector s_LastScreen;
+	static bool s_Visible;
+	// Offset of the label from the aim point (screen fractions). The GUI is squeezed
+	// into the HUD content rectangle (hud_scale/safe area, bottom at ~0.8 of the frame),
+	// so the drawn magazine (~0.95) is unreachable; the label clamps to the HUD's
+	// bottom-right instead, which is as close to the gun as GUI space allows.
+	static const float LABEL_DX = 0.09;
+	static const float LABEL_DY = 0.30;
 
 	void DayZVRAmmoCounter()
 	{
@@ -20,7 +29,7 @@ class DayZVRAmmoCounter
 		m_Text = TextWidget.Cast(GetGame().GetWorkspace().CreateWidget(TextWidgetTypeID, 0, 0, 200, 60,
 			WidgetFlags.VISIBLE | WidgetFlags.HEXACTSIZE | WidgetFlags.VEXACTSIZE,
 			0xffffffff, 1, m_Root));
-		m_Text.SetTextExactSize(32);
+		m_Text.SetTextExactSize(48);
 		m_Text.SetText("");
 		m_Root.Show(false);
 	}
@@ -52,44 +61,50 @@ class DayZVRAmmoCounter
 		int muzzle = weapon.GetCurrentMuzzle();
 		Magazine magazine = weapon.GetMagazine(muzzle);
 		int ammo = -1;
-		vector anchor;
 		if (magazine)
-		{
 			ammo = magazine.GetAmmoCount();
-			anchor = magazine.GetPosition();
-		}
 		else
 		{
-			// Internal magazines (bolt rifles, shotguns) have no attached entity:
-			// count chambered/internal rounds and anchor on the weapon itself.
+			// Internal magazines (bolt rifles, shotguns) have no attached entity.
 			ammo = weapon.GetInternalMagazineCartridgeCount(muzzle);
 			if (weapon.IsChamberFull(muzzle) && !weapon.IsChamberFiredOut(muzzle))
 				ammo = ammo + 1;
-			anchor = weapon.GetPosition();
 		}
-		vector screen = GetGame().GetScreenPosRelative(anchor);
-		// z <= 0 means behind the camera (also while the weapon is lowered out of view).
-		if (screen[2] <= 0)
+		HumanMovementState movement = new HumanMovementState();
+		player.GetMovementState(movement);
+		if (!movement.IsRaised())
 		{
+			// Lowered weapon: the first-person model is mostly out of view.
 			Hide();
 			return;
 		}
-		// The projection uses DayZ's camera; the shown view may point elsewhere
-		// (controller aim, locked axes). Shift by the offset the native side reports,
-		// scaled by the horizontal/vertical FOV (DayZ's default vertical FOV ~ 0.75 rad).
+		// The first-person weapon is a separate hands model drawn relative to the camera;
+		// the world entity (what GetPosition/ModelToWorld report) sits at the body and
+		// projects nowhere near the drawn gun. So the label is placed at a fixed offset
+		// from the aim point instead: below-right of centre, where the raised rifle's
+		// magazine is drawn. The aim point itself moves with the view offset the native
+		// side reports (controller aim or locked axes).
 		float vfov = GetGame().GetUserFOV();
 		if (vfov <= 0)
 			vfov = 0.75;
 		int sw, sh;
 		GetScreenSize(sw, sh);
 		float hfov = vfov * sw / sh;
-		screen[0] = screen[0] + bridge.VrFloat("view_yaw_offset") / hfov;
-		screen[1] = screen[1] - bridge.VrFloat("view_pitch_offset") / vfov;
-		if (screen[0] < 0 || screen[0] > 1 || screen[1] < 0 || screen[1] > 1)
+		vector screen = "0.5 0.5 1";
+		screen[0] = 0.5 + bridge.VrFloat("view_yaw_offset") / hfov + LABEL_DX;
+		screen[1] = 0.5 - bridge.VrFloat("view_pitch_offset") / vfov + LABEL_DY;
+		// Widget coordinates span the HUD content rectangle the native side squeezes the
+		// GUI into (hud_scale / safe area), not the full frame: map accordingly.
+		float hudW = bridge.VrFloat("hud_width");
+		float hudH = bridge.VrFloat("hud_height");
+		if (hudW > 0.01 && hudH > 0.01)
 		{
-			Hide();
-			return;
+			screen[0] = (screen[0] - bridge.VrFloat("hud_left")) / hudW;
+			screen[1] = (screen[1] - bridge.VrFloat("hud_top")) / hudH;
 		}
+		screen[0] = Math.Clamp(screen[0], 0.0, 0.9);
+		screen[1] = Math.Clamp(screen[1], 0.0, 0.95);
+		s_LastScreen = screen;
 		string text = ammo.ToString();
 		if (weapon.IsChamberFull(muzzle) && magazine)
 			text = text + "+1";
@@ -104,12 +119,14 @@ class DayZVRAmmoCounter
 			else
 				m_Text.SetColor(0xffffffff);
 		}
-		m_Text.SetPos(screen[0] + 0.012, screen[1] - 0.01);
+		m_Text.SetPos(screen[0], screen[1]);
 		m_Root.Show(true);
+		s_Visible = true;
 	}
 
 	protected void Hide()
 	{
+		s_Visible = false;
 		if (m_Root.IsVisible())
 			m_Root.Show(false);
 	}

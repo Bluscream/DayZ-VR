@@ -283,6 +283,11 @@ namespace
     float g_hudLeftOffsetX{};
     float g_hudRightOffsetX{};
     std::atomic_bool g_hudSafeLogged{};
+    // Last HUD content rectangle written into the renderer (fractions of the backbuffer),
+    // published to the script bridge so Enforce widgets can map full-screen positions
+    // into DayZ's GUI space.
+    std::mutex g_hudRectMutex;
+    dayz::runtime_probe::HudContentRect g_hudRect{};
 
     std::mutex g_hudLayerMutex;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> g_hudLayerTexture;
@@ -580,6 +585,10 @@ float4 PSMain(VertexOutput input) : SV_Target
 
             const float left = (1.0f - contentWidth) * 0.5f;
             const float top = (1.0f - contentHeight) * 0.5f;
+            {
+                std::lock_guard<std::mutex> lock(g_hudRectMutex);
+                g_hudRect = {left, top, contentWidth, contentHeight, true};
+            }
             auto* values = reinterpret_cast<float*>(renderer);
             values[30] = left;
             values[31] = top;
@@ -3509,6 +3518,12 @@ namespace dayz::runtime_probe
     HWND__* RealForegroundWindow() noexcept
     {
         return RealForegroundWindowImpl();
+    }
+
+    HudContentRect GetHudContentRect() noexcept
+    {
+        std::lock_guard<std::mutex> lock(g_hudRectMutex);
+        return g_hudRect;
     }
 
     DebugSnapshot GetDebugSnapshot() noexcept

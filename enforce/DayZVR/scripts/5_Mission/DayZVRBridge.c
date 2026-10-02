@@ -86,6 +86,7 @@ class DayZVRBridge
 		FPrintln(file, "stance=" + movement.m_iStanceIdx.ToString());
 		FPrintln(file, "raised=" + BoolText(movement.IsRaised()));
 		FPrintln(file, "in_vehicle=" + BoolText(player.IsInVehicle()));
+		FPrintln(file, "ammo_label=" + BoolText(DayZVRAmmoCounter.s_Visible) + " " + DayZVRAmmoCounter.s_LastScreen.ToString(false));
 		CloseFile(file);
 	}
 

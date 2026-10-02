@@ -100,18 +100,22 @@ namespace dayz::script_bridge
                 viewYawOffset = std::remainder(yawOfDir(cams.renderX, cams.renderZ) - yawOfDir(cams.nativeX, cams.nativeZ), 6.28318530718f);
                 viewPitchOffset = pitchOfDir(cams.renderY) - pitchOfDir(cams.nativeY);
             }
-            char text[896]{};
+            const dayz::runtime_probe::HudContentRect hud = dayz::runtime_probe::GetHudContentRect();
+            char text[1024]{};
             sprintf_s(text,
                 "frame=%llu\nhmd_valid=%d\nhmd_yaw=%.5f\nhmd_pitch=%.5f\nhmd_roll=%.5f\n"
                 "hmd_x=%.4f\nhmd_y=%.4f\nhmd_z=%.4f\naim_valid=%d\naim_yaw=%.5f\naim_pitch=%.5f\n"
                 "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
-                "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n",
+                "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n"
+                "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n",
                 static_cast<unsigned long long>(g_frame), hmd.valid ? 1 : 0,
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
                 aim.valid ? yawOf(aim) : 0.0f, aim.valid ? pitchOf(aim) : 0.0f,
                 probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0, g_ammoCounter ? 1 : 0,
-                viewYawOffset, viewPitchOffset);
+                viewYawOffset, viewPitchOffset,
+                hud.valid ? hud.left : 0.0f, hud.valid ? hud.top : 0.0f,
+                hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f);
             FILE* file{};
             if (_wfopen_s(&file, g_vrTempPath.c_str(), L"wb") != 0 || !file)
                 return;

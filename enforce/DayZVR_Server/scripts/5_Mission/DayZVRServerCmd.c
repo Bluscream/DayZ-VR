@@ -121,10 +121,17 @@ class DayZVRServerCmd
 			return "usage: hands <class> [magclass]";
 		EntityAI current = player.GetHumanInventory().GetEntityInHands();
 		if (current)
-			player.GetInventory().DropEntity(InventoryMode.SERVER, player, current);
+			player.ServerDropEntity(current);
 		EntityAI item = player.GetHumanInventory().CreateInHands(words[1]);
 		if (!item)
-			return "cannot create " + words[1];
+		{
+			// Hands still report the dropped item this frame: create next to the player
+			// instead so the command never silently does nothing.
+			item = EntityAI.Cast(GetGame().CreateObjectEx(words[1], player.GetPosition() + player.GetDirection(), ECE_PLACE_ON_SURFACE));
+			if (!item)
+				return "cannot create " + words[1];
+			return "hands were busy (dropped " + current.GetType() + "): spawned " + words[1] + " on the ground, repeat the command";
+		}
 		Weapon_Base weapon = Weapon_Base.Cast(item);
 		if (!weapon)
 			return "in hands: " + words[1];
