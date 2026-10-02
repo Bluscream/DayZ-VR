@@ -106,6 +106,24 @@ detour. Update the entry when you touch the track; keep history in git, not here
 - Next: ammo counter quad attached to the right controller grip (needs S2 data), then
   optional HUD elements as controller/wrist-anchored quads; all behind ini flags.
 
+## U2. In-game settings UI (edit every mod setting at runtime)
+- State: settings live in `dayz_openxr.ini`; the `[stereo]`/`[gui]`/`[comfort]`-style
+  keys the render path reads per frame are already live tunables (debug plugin
+  `set`, hotkey toggles), keys consumed at hook installation need a restart. No
+  in-game editor. UEVR's VR-friendly overlay (imgui drawn into a world-locked quad,
+  operated with the controller ray) is the reference; plain desktop imgui is not VR
+  friendly.
+- Next: (1) make as many settings as possible runtime tunables (register every ini
+  key through one table with type/range/"needs restart" flag, so the ini parser, the
+  debug protocol `tunables`, hotkey toggles and the UI all share it); (2) UI options,
+  pick one: (a) reuse DayZ's own UI through the Enforce mod (an options tab/menu built
+  from `.layout` widgets, values exchanged through the S2 bridge, gets the GUI quad +
+  controller ray for free); (b) native imgui into the existing GUI quad swapchain
+  (`dayz_frame_source`), ray-driven like UEVR. (a) is zero new renderer code and fits
+  the world-locked menu quad; start there. (3) persist changes back to the ini.
+- Open: Enforce cannot write outside `$profile:`, so persisting from (a) goes through
+  the bridge; menu open/close bound to a controller chord.
+
 ## M1. Motion controls
 - State: WASD/turn/jump/use/inventory/menu/hotbar on sticks and buttons; stick turn
   via the aim loop (smooth/snap); left stick click recenters; controller_aim decouples
