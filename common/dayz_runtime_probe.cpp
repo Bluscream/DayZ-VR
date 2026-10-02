@@ -6,6 +6,7 @@
 #include "dayz_patches.hpp"
 #include "hmd_aim_loop.hpp"
 #include "projection_replay.hpp"
+#include "gui_capture_sizing.hpp"
 #include "script_bridge.hpp"
 
 #include "logging.hpp"
@@ -317,6 +318,7 @@ namespace
     std::atomic_bool g_inventoryPreviewActive{};
     unsigned int g_inventoryPreviewOrdinal{};
     std::mutex g_guiLayerMutex;
+    dayz::runtime_probe::GuiCaptureSizing g_guiCaptureSizing;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> g_guiLayerTexture;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> g_guiLayerTarget;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> g_guiLayerResolved;
@@ -2047,8 +2049,7 @@ float4 PSMain(VertexOutput input) : SV_Target
             g_guiLayerHeight == source.Height && g_guiLayerSamples.Count ==
             source.SampleDesc.Count && g_guiLayerSamples.Quality == source.SampleDesc.Quality)
             return true;
-        if (g_guiLayerTarget && static_cast<std::uint64_t>(source.Width) * source.Height <
-            static_cast<std::uint64_t>(g_guiLayerWidth) * g_guiLayerHeight)
+        if (!g_guiCaptureSizing.Accepts(source.Width, source.Height))
             return false;
 
         g_guiLayerView.Reset();
@@ -2079,6 +2080,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         g_guiNativeWidth = source.Width;
         g_guiNativeHeight = source.Height;
         g_guiLayerSamples = source.SampleDesc;
+        g_guiCaptureSizing.Captured(source.Width, source.Height);
         g_guiLayerNeedsClear = true;
         g_guiLayerLogged = false;
         return true;
@@ -2825,13 +2827,31 @@ float4 PSMain(VertexOutput input) : SV_Target
         DXGI_SWAP_CHAIN_DESC swapDescription{};
         if (FAILED(swapChain->GetDesc(&swapDescription)) || !swapDescription.OutputWindow)
             return;
+        if (g_gameWindow && swapDescription.OutputWindow != g_gameWindow)
+            return;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer;
         if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
             return;
         D3D11_TEXTURE2D_DESC description{};
         backBuffer->GetDesc(&description);
-        if (description.Width < 1000 || description.Height < 1000)
+        if (!g_gameWindow && (description.Width < 1000 || description.Height < 1000))
             return;
+        {
+            std::scoped_lock lock(g_guiLayerMutex);
+            if (g_guiCaptureSizing.ObserveBackBuffer(description.Width, description.Height))
+            {
+                g_guiLayerView.Reset();
+                g_guiLayerResolved.Reset();
+                g_guiLayerTarget.Reset();
+                g_guiLayerTexture.Reset();
+                g_guiLayerWidth = 0;
+                g_guiLayerHeight = 0;
+                g_guiLayerSamples = {};
+                g_guiLayerDirty = false;
+                g_guiLayerNeedsClear = true;
+                g_guiLayerCapturedPresent = ~std::uint64_t{};
+            }
+        }
         g_guiBackWidth = description.Width;
         g_guiBackHeight = description.Height;
         if (!g_gameWindow)
