@@ -21,6 +21,7 @@ namespace dayz::script_bridge
     namespace
     {
         bool g_enabled{};
+        bool g_ammoCounter{};
         unsigned g_intervalFrames{6};
         std::wstring g_directory;
         std::wstring g_vrPath;
@@ -85,16 +86,32 @@ namespace dayz::script_bridge
                 return std::atan2(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
             };
             const dayz::runtime_probe::DebugSnapshot probe = dayz::runtime_probe::GetDebugSnapshot();
-            char text[768]{};
+            // Where the shown view points relative to DayZ's own camera: Enforce's
+            // GetScreenPos projects with the game camera, so screen-space widgets need
+            // this offset (yaw positive = render looks further left) in controller-aim
+            // or locked modes. OpenXR convention: yaw = atan2(-x, -z), pitch = asin(y).
+            const dayz::stereo_state::CameraDirections cams = dayz::stereo_state::GetCameraDirections();
+            float viewYawOffset = 0.0f;
+            float viewPitchOffset = 0.0f;
+            if (cams.valid)
+            {
+                const auto yawOfDir = [](float x, float z) { return std::atan2(-x, -z); };
+                const auto pitchOfDir = [](float y) { return std::asin(y < -1.0f ? -1.0f : y > 1.0f ? 1.0f : y); };
+                viewYawOffset = std::remainder(yawOfDir(cams.renderX, cams.renderZ) - yawOfDir(cams.nativeX, cams.nativeZ), 6.28318530718f);
+                viewPitchOffset = pitchOfDir(cams.renderY) - pitchOfDir(cams.nativeY);
+            }
+            char text[896]{};
             sprintf_s(text,
                 "frame=%llu\nhmd_valid=%d\nhmd_yaw=%.5f\nhmd_pitch=%.5f\nhmd_roll=%.5f\n"
                 "hmd_x=%.4f\nhmd_y=%.4f\nhmd_z=%.4f\naim_valid=%d\naim_yaw=%.5f\naim_pitch=%.5f\n"
-                "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\n",
+                "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
+                "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n",
                 static_cast<unsigned long long>(g_frame), hmd.valid ? 1 : 0,
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
                 aim.valid ? yawOf(aim) : 0.0f, aim.valid ? pitchOf(aim) : 0.0f,
-                probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0);
+                probe.aimYawError, probe.aimPitchError, probe.guiCursorMode ? 1 : 0, g_ammoCounter ? 1 : 0,
+                viewYawOffset, viewPitchOffset);
             FILE* file{};
             if (_wfopen_s(&file, g_vrTempPath.c_str(), L"wb") != 0 || !file)
                 return;
@@ -159,6 +176,7 @@ namespace dayz::script_bridge
     void Initialize(const wchar_t* iniPath) noexcept
     {
         g_enabled = ReadBoolean(iniPath, L"enabled", true);
+        g_ammoCounter = ReadBoolean(iniPath, L"ammo_counter", true);
         wchar_t interval[16]{};
         GetPrivateProfileStringW(L"bridge", L"interval_frames", L"6", interval,
             static_cast<DWORD>(std::size(interval)), iniPath);
