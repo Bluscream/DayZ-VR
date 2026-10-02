@@ -45,11 +45,17 @@ detour. Update the entry when you touch the track; keep history in git, not here
   reprojection pass in `dayz_frame_source.cpp`.
 
 ## R3. Headless frame-rate ceiling
-- State: 14-20 fps on the sim rig (null compositor), 67 fps with WiVRn on the headset.
-  Cause unknown; the aim loop was verified at this rate anyway.
-- Next: compare flat (OpenXR disabled) fps via an external counter, try
-  `PROTON_DIR=…/GE-Proton11-7 scripts/run-dayz-direct.sh --sim`, check whether the null
-  compositor's frame pacing (`XRT_COMPOSITOR_DEFAULT_FRAMERATE`) throttles xrWaitFrame.
+- State: 14-20 fps on the sim rig (Monado null compositor), 67 fps with WiVRn on the
+  headset. Cause unknown; the aim loop was verified at this rate anyway. The user asked
+  (2026-10-02) for this to be investigated when time allows, online research included.
+- Next: (1) measure flat fps (OpenXR `enabled=false`) on the same rig to separate game
+  cost from runtime cost; (2) time xrWaitFrame/xrEndFrame in the host log (`fps=` lines
+  only give the result); (3) Monado knobs: `XRT_COMPOSITOR_DEFAULT_FRAMERATE`,
+  `XRT_COMPOSITOR_COMPUTE`, the null/headless compositor's fake vblank period, and the
+  simulated HMD's nominal refresh in `src/xrt/drivers/simulated`; (4) swapchain image
+  count / `XR_KHR_D3D11_enable` interop copies (DXVK → Vulkan import) may serialise the
+  GPU; (5) GE-Proton11-7 via PROTON_DIR; (6) search Monado issues for "simulated driver
+  frame rate" / "null compositor fps".
 
 ## S1. Lua scripting layer
 - State: research done. UEVR vendors Lua 5.4.4 (`.references/repos/injectors/UEVR/
@@ -77,11 +83,21 @@ detour. Update the entry when you touch the track; keep history in git, not here
   CfgPatches/CfgMods script modules; no PBO tool installed anywhere on this host, the
   format is simple enough to write in Python. Servers with verifySignatures need the
   mod's .bikey; the local test server can run verifySignatures=0.
-- Next: native side writes `$profile:dayzvr/vr.json` (poses, buttons) each N frames and
-  reads `$profile:dayzvr/game.json` (ammo, health, stance, inventory open) written by a
-  sample client mod in `enforce/@DayZVR`; build script for the PBO.
-- Open: which servers accept the client mod; latency of file polling; alternative
-  native hook into the script VM.
+- State (2026-10-02): working end to end on the sim rig. `common/script_bridge.cpp`
+  writes `$profile:dayzvr\vr.txt` (key=value) every `[bridge] interval_frames` and
+  reads `game.txt`; `enforce/DayZVR` (packed by `scripts/build-pbo.py`, deployed as
+  `@DayZVR`) writes weapon/ammo/chamber/health_level/bleeding/stamina/inventory/
+  stance/raised/in_vehicle at 10 Hz and reads vr.txt into a map. `$profile:` is
+  `%LOCALAPPDATA%\DayZ` without `-profiles=`. Gotchas: `GetHealth`/`GetHealth01`
+  throw "cannot be called on client" (VM exceptions land in crash_*.log, one per
+  frame); `PlayerBase.GetTransport` does not exist (compile error dialog blocks the
+  launch). Client-safe: `m_HealthLevel`, `GetBleedingBits()`, `GetStaminaHandler()`.
+- Next: expose vr.txt data to a sample Enforce feature (U1 ammo counter needs the
+  native side, but a wrist HUD widget can be drawn from Enforce directly with the HMD
+  yaw); add buttons/hotkey events to vr.txt; JSON via `JsonFileLoader` if parsing
+  cost matters; `.bikey`/`.bisign` for signature-checking servers.
+- Open: latency of 10 Hz file polling (fine for HUD data); alternative native hook
+  into the script VM (would avoid files entirely).
 
 ## U1. Immersive UI
 - State: GUI quad (world-locked menu/inventory), HUD safe-area and scale overrides,
@@ -116,7 +132,12 @@ detour. Update the entry when you touch the track; keep history in git, not here
 
 ## T1. Test rig and tooling
 - State: `scripts/xr-sim.sh` (Monado sim: SIM_ROTATE, SIM_CONTROLLERS=simple|wmr|ml2),
-  `scripts/run-dayz-direct.sh --sim`, `scripts/local-server.sh`, `scripts/
+  `scripts/run-dayz-direct.sh --sim` (prunes old dumps/logs/backups, records the log
+  offset), `scripts/dayz-status.sh --wait N` (one-shot full report: install, artifacts,
+  windows incl. dialogs, screenshot, session, log summary, crash reasons, script log,
+  bridge files; nothing optional), `scripts/local-server.sh`, `scripts/
   ghidra-decompile.sh`, `scripts/dayz-vr-ctl.py` (watch shows aimerr/gain).
+  Standard cycle: `build.sh --stop --deploy` → `run-dayz-direct.sh --sim -- -connect=
+  127.0.0.1 -port=2302 -mod=@DayZVR` → `dayz-status.sh --wait 300`.
 - Next: a `calibrate` subcommand in dayz-vr-ctl.py that runs the yaw-ratio measurement
   (currently a scratch script); automated regression run (launch, join, measure, stop).

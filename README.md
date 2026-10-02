@@ -164,6 +164,14 @@ Head aim is closed-loop by default (`[stereo] hmd_aim_closed_loop`): each frame 
 
 Tunables are the `[stereo]` and `[gui]` keys the render path reads every frame; keys consumed only at hook installation (`runtime_probe`, HUD safe area, resolution override) still need a restart. A value set this way lasts until the game exits; copy it into the ini to keep it. The protocol is one command per line with one JSON line back (`get`, `tunables`, `set <name> <value>`, `recenter`, `ping`); any client that can open a TCP socket works.
 
+## Script bridge (Enforce Script mods)
+
+DayZ mods are written in Enforce Script, which can only touch files under `$profile:` (`%LOCALAPPDATA%\DayZ` unless `-profiles=` is given). The mod uses that as a two-way channel. With `[bridge] enabled=true` the proxy writes `$profile:dayzvr\vr.txt` every `interval_frames` frames (HMD yaw/pitch/roll and position, right controller aim pose, aim-loop errors, GUI cursor state) and reads `$profile:dayzvr\game.txt`. The sample client mod in `enforce/DayZVR` (packed by `scripts/build-pbo.py`, deployed by `scripts/build.sh --deploy` as `<game>\@DayZVR`, launch with `-mod=@DayZVR`) writes `game.txt` ten times a second with the weapon class, magazine ammo count, chamber state, the synced health level (0 pristine .. 4 ruined), bleeding bits, stamina, inventory open, stance, weapon raised and vehicle state, and reads `vr.txt` back into a map (`DayZVRBridge.Vr("hmd_yaw")`). Health and blood values themselves are server-only in Enforce. Servers with `verifySignatures` enabled need the mod's `.bikey`; the local test server (`scripts/local-server.sh`) runs without signature checks.
+
+## Test rig on Linux
+
+`scripts/xr-sim.sh start` runs a headless Monado runtime (`SIM_ROTATE=1` spins the HMD, `SIM_CONTROLLERS=wmr|simple|ml2` adds controllers), `scripts/local-server.sh` runs an isolated dedicated server in podman, `scripts/run-dayz-direct.sh --sim -- -connect=127.0.0.1 -port=2302` launches the game through Proton without the launcher (pruning old crash dumps, DayZ logs, screenshots and deploy backups first), and `scripts/dayz-status.sh --wait 300` blocks until the game is in-world or crashed and then prints one report: exe version, deployed artifacts versus build outputs, ini highlights, processes and every window owned by the game, a full-screen capture under `build/logs`, the OpenXR session state, the `dayz_openxr.log` summary and tail, crash dumps with the newest crash reasons, the newest DayZ script log and the bridge exchange files. `scripts/build.sh --stop` closes the game.
+
 ## Uninstallation
 
 Close DayZ and remove `dxgi.dll`, `openxr_loader.dll`, and `dayz_openxr.ini` from the directory containing `DayZ_x64.exe`. Runtime log files such as `dayz_openxr.log` can also be removed.
