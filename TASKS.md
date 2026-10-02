@@ -115,9 +115,19 @@ detour. Update the entry when you touch the track; keep history in git, not here
   pass. Simulator creates its 170x48 swapchain and runs without XR errors; a tiny
   controller-adjacent label is visible in the compositor, but its exact text and
   real-headset readability still need a clearer close-up verification.
-- Next: verify 10+1, empty/low ammo, magazine changes and weapon switching on the
-  native quad; verify physical-controller placement/readability. Keep the Enforce
-  label available as the fallback. Fix bridge freshness/internal-magazine audit
+- State (2026-10-02 07:10): native quad verified readable on the sim compositor
+  (`build/logs/ammo-quad-60plus1.png`: "60+1" seven-segment next to the right grip,
+  M4A1 + STANAG 60). `hud.ammo_quad*` (show, width, offset xyz, tilt) are live
+  tunables (`dayz-vr-ctl.py set hud.ammo_quad_width_meters 0.4`), registered by the
+  host through `runtime_probe::RegisterTunables`. Regression found and fixed on the
+  way: the audit's desktop-focus gate (`InputAllowed`) had also stopped controller
+  *tracking* when the DayZ window was not the foreground, which hid the quad, the rays
+  and the debug hand poses; `TrackingAllowed` now gates poses, `InputAllowed` only
+  key/mouse injection.
+- Next: verify empty/low ammo colours, magazine changes and weapon switching on the
+  native quad; verify physical-controller placement/readability (sim grips sit at the
+  frame edge, so the quad clips there). Keep the Enforce label available as the
+  fallback. Fix bridge freshness/internal-magazine audit
   findings before treating displayed values as reliable for every weapon.
 
 ## U2. In-game settings UI (edit every mod setting at runtime)
@@ -127,9 +137,14 @@ detour. Update the entry when you touch the track; keep history in git, not here
   in-game editor. UEVR's VR-friendly overlay (imgui drawn into a world-locked quad,
   operated with the controller ray) is the reference; plain desktop imgui is not VR
   friendly.
+- State (2026-10-02): host-owned settings can now join the probe's tunable table
+  (`runtime_probe::RegisterTunables`, atomics written by the debug thread, read per
+  frame); `[hud] ammo_quad*` is the first user. The ini clamps and the table bounds
+  are still written twice (host config read + table row).
 - Next: (1) make as many settings as possible runtime tunables (register every ini
   key through one table with type/range/"needs restart" flag, so the ini parser, the
-  debug protocol `tunables`, hotkey toggles and the UI all share it); (2) UI options,
+  debug protocol `tunables`, hotkey toggles and the UI all share it; fold the host's
+  `ReadFloat`+clamp pairs into that table); (2) UI options,
   pick one: (a) reuse DayZ's own UI through the Enforce mod (an options tab/menu built
   from `.layout` widgets, values exchanged through the S2 bridge, gets the GUI quad +
   controller ray for free); (b) native imgui into the existing GUI quad swapchain

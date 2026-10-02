@@ -4,7 +4,9 @@
 //
 //   give <class> [count]       item(s) into the inventory (ground if full)
 //   hands <class> [magclass]   weapon into hands with a full attached magazine
-//                              (default magazine from the weapon config), or any item
+//                              (default magazine from the weapon config), or any item;
+//                              a held item is dropped first and the creation runs
+//                              on the next tick (two "->" lines in cmd.log)
 //   spawn <class> [dx dy dz]   object in front of the player (vehicles get wheels,
 //                              battery, spark plug, radiator, fuel, water, oil)
 //   tp <x> <z> | tp <x> <y> <z> | tp <preset>   teleport (presets: nwaf, cherno,
@@ -18,6 +20,9 @@ class DayZVRServerCmd
 	static const string DIR = "$profile:dayzvr/";
 	static const float INTERVAL = 0.5;
 	protected float m_Accumulated;
+	// Commands that need the next tick (an item was just dropped from the hands and
+	// the slot only frees after the frame): executed before reading a new cmd.txt.
+	protected ref array<string> m_Deferred = new array<string>();
 
 	void Tick(float timeslice)
 	{
@@ -25,9 +30,16 @@ class DayZVRServerCmd
 		if (m_Accumulated < INTERVAL)
 			return;
 		m_Accumulated = 0;
-		if (!FileExist(DIR + "cmd.txt"))
-			return;
 		array<string> lines = new array<string>();
+		foreach (string deferred : m_Deferred)
+			lines.Insert(deferred);
+		m_Deferred.Clear();
+		if (!FileExist(DIR + "cmd.txt"))
+		{
+			foreach (string retry : lines)
+				Log(retry + " -> " + Execute(retry));
+			return;
+		}
 		FileHandle file = OpenFile(DIR + "cmd.txt", FileMode.READ);
 		if (!file)
 			return;
@@ -121,17 +133,19 @@ class DayZVRServerCmd
 			return "usage: hands <class> [magclass]";
 		EntityAI current = player.GetHumanInventory().GetEntityInHands();
 		if (current)
+		{
+			// The slot only frees after this frame: drop now, create on the next tick.
+			string dropped = current.GetType();
 			player.ServerDropEntity(current);
+			string again = "hands";
+			for (int i = 1; i < words.Count(); i++)
+				again += " " + words[i];
+			m_Deferred.Insert(again);
+			return "dropped " + dropped + ", creating " + words[1] + " next tick";
+		}
 		EntityAI item = player.GetHumanInventory().CreateInHands(words[1]);
 		if (!item)
-		{
-			// Hands still report the dropped item this frame: create next to the player
-			// instead so the command never silently does nothing.
-			item = EntityAI.Cast(GetGame().CreateObjectEx(words[1], player.GetPosition() + player.GetDirection(), ECE_PLACE_ON_SURFACE));
-			if (!item)
-				return "cannot create " + words[1];
-			return "hands were busy (dropped " + current.GetType() + "): spawned " + words[1] + " on the ground, repeat the command";
-		}
+			return "cannot create " + words[1] + " in hands";
 		Weapon_Base weapon = Weapon_Base.Cast(item);
 		if (!weapon)
 			return "in hands: " + words[1];
