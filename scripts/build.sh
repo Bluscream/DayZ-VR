@@ -94,6 +94,7 @@ step_test() {
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion'
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
+  run_in_container "g++ $gpp_flags tests/ammo_display_test.cpp common/ammo_display.cpp -o build/ammo_display_test && ./build/ammo_display_test" 2>&1 | tee "$log_dir/test-ammo-display.log"
   python3 scripts/build-pbo.py enforce/DayZVR "build/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
   python3 scripts/build-pbo.py enforce/DayZVR_Server "build/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then

@@ -1,6 +1,8 @@
 #include "openxr_host.hpp"
 
+#include "ammo_display.hpp"
 #include "comfort.hpp"
+#include "script_bridge.hpp"
 
 #include "debug_frame_source.hpp"
 #include "dayz_frame_source.hpp"
@@ -608,6 +610,11 @@ bool OpenXrHost::CreateSwapchains()
         logging::Error("Controller axis swapchain unavailable; controller input will continue");
         controllerAxesEnabled_ = false;
     }
+    if (ammoQuadEnabled_ && !CreateAmmoSwapchain(formats))
+    {
+        logging::Error("Ammo quad swapchain unavailable; the display stays off");
+        ammoQuadEnabled_ = false;
+    }
     logging::Info("Stereo swapchains are ready");
     return true;
 }
@@ -672,6 +679,115 @@ bool OpenXrHost::CreateGuiSwapchain(const std::vector<std::int64_t>& formats)
     return true;
 }
 
+bool OpenXrHost::CreateAmmoSwapchain(const std::vector<std::int64_t>& formats)
+{
+    const DXGI_FORMAT format = std::find(formats.begin(), formats.end(),
+        static_cast<std::int64_t>(DXGI_FORMAT_R8G8B8A8_UNORM)) != formats.end()
+        ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    if (std::find(formats.begin(), formats.end(), static_cast<std::int64_t>(format)) ==
+        formats.end())
+        return false;
+    ammoSwapchain_.height = ammoQuadPixelHeight_;
+    ammoSwapchain_.width = dayz::ammo_display::kMaxCells *
+        dayz::ammo_display::CellWidth(ammoSwapchain_.height);
+    XrSwapchainCreateInfo info(MakeXr<XrSwapchainCreateInfo>(XR_TYPE_SWAPCHAIN_CREATE_INFO));
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    info.format = format;
+    info.sampleCount = 1;
+    info.width = ammoSwapchain_.width;
+    info.height = ammoSwapchain_.height;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    if (!Check(xrCreateSwapchain(session_, &info, &ammoSwapchain_.handle),
+            "xrCreateSwapchain(ammo)"))
+        return false;
+    std::uint32_t count{};
+    if (!Check(xrEnumerateSwapchainImages(ammoSwapchain_.handle, 0, &count, nullptr),
+            "xrEnumerateSwapchainImages(ammo count)"))
+        return false;
+    ammoSwapchain_.images.resize(count);
+    for (auto& image : ammoSwapchain_.images)
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR;
+    if (!Check(xrEnumerateSwapchainImages(ammoSwapchain_.handle, count, &count,
+            reinterpret_cast<XrSwapchainImageBaseHeader*>(ammoSwapchain_.images.data())),
+            "xrEnumerateSwapchainImages(ammo)"))
+        return false;
+    std::ostringstream message;
+    message << "Ammo quad swapchain ready: " << ammoSwapchain_.width << 'x' << ammoSwapchain_.height
+        << " images=" << count;
+    logging::Info(message.str());
+    return true;
+}
+
+bool OpenXrHost::PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept
+{
+    if (!ammoQuadEnabled_ || ammoSwapchain_.handle == XR_NULL_HANDLE ||
+        !dayz::script_bridge::Enabled())
+        return false;
+    const XrSpaceLocation& grip = gripLocations_[1];
+    constexpr XrSpaceLocationFlags kTracked =
+        XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    if ((grip.locationFlags & kTracked) != kTracked)
+        return false;
+    const dayz::script_bridge::GameState game = dayz::script_bridge::GetGameState();
+    if (!game.valid || game.weapon.empty() || (game.ammo < 0 && !game.chamber))
+        return false;
+    const std::string text = dayz::ammo_display::FormatAmmo(game.ammo, game.chamber);
+    const std::uint32_t colour = dayz::ammo_display::ColourFor(game.ammo, game.chamber);
+    if (!ammoSwapchain_.hasImage || text != ammoSwapchain_.text || colour != ammoSwapchain_.colour)
+    {
+        // Re-rasterise only on change: the bitmap is tiny, the upload is one call.
+        dayz::ammo_display::Bitmap bitmap =
+            dayz::ammo_display::Render(text, ammoSwapchain_.height, colour);
+        // Right-align the text in the fixed-width swapchain so the quad's right edge
+        // stays put over the hand while the digit count changes.
+        std::vector<std::uint32_t> full(static_cast<std::size_t>(ammoSwapchain_.width) * ammoSwapchain_.height, 0u);
+        const unsigned shift = ammoSwapchain_.width > bitmap.width ? ammoSwapchain_.width - bitmap.width : 0;
+        for (unsigned y = 0; y < bitmap.height && y < ammoSwapchain_.height; ++y)
+            for (unsigned x = 0; x < bitmap.width && x + shift < ammoSwapchain_.width; ++x)
+                full[static_cast<std::size_t>(y) * ammoSwapchain_.width + x + shift] =
+                    bitmap.pixels[static_cast<std::size_t>(y) * bitmap.width + x];
+        std::uint32_t imageIndex{};
+        XrSwapchainImageAcquireInfo acquire(MakeXr<XrSwapchainImageAcquireInfo>(XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO));
+        if (!XR_SUCCEEDED(xrAcquireSwapchainImage(ammoSwapchain_.handle, &acquire, &imageIndex)))
+            return ammoSwapchain_.hasImage;
+        XrSwapchainImageWaitInfo wait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
+        wait.timeout = XR_INFINITE_DURATION;
+        if (XR_SUCCEEDED(xrWaitSwapchainImage(ammoSwapchain_.handle, &wait)))
+        {
+            context_->UpdateSubresource(ammoSwapchain_.images[imageIndex].texture, 0, nullptr,
+                full.data(), ammoSwapchain_.width * sizeof(std::uint32_t), 0);
+            ammoSwapchain_.text = text;
+            ammoSwapchain_.colour = colour;
+            ammoSwapchain_.hasImage = true;
+        }
+        XrSwapchainImageReleaseInfo release(MakeXr<XrSwapchainImageReleaseInfo>(XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO));
+        xrReleaseSwapchainImage(ammoSwapchain_.handle, &release);
+        if (!ammoSwapchain_.hasImage)
+            return false;
+    }
+    layer = (MakeXr<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD));
+    layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    layer.space = localSpace_;
+    layer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    layer.subImage.swapchain = ammoSwapchain_.handle;
+    layer.subImage.imageRect.offset = {0, 0};
+    layer.subImage.imageRect.extent = {static_cast<std::int32_t>(ammoSwapchain_.width),
+        static_cast<std::int32_t>(ammoSwapchain_.height)};
+    // Tilt about the grip's x axis so the face (+z of the quad) turns towards the eyes.
+    const float half = ammoQuadTiltDegrees_ * 3.14159265f / 360.0f;
+    const XrQuaternionf tilt{std::sin(half), 0.0f, 0.0f, std::cos(half)};
+    layer.pose.orientation = Multiply(grip.pose.orientation, tilt);
+    const XrVector3f offset = Rotate(grip.pose.orientation, ammoQuadOffset_);
+    layer.pose.position = {grip.pose.position.x + offset.x, grip.pose.position.y + offset.y,
+        grip.pose.position.z + offset.z};
+    layer.size.width = ammoQuadWidthMeters_;
+    layer.size.height = ammoQuadWidthMeters_ * static_cast<float>(ammoSwapchain_.height) /
+        static_cast<float>((std::max)(1u, ammoSwapchain_.width));
+    return true;
+}
+
 bool OpenXrHost::CreateAxisSwapchain(const std::vector<std::int64_t>& formats)
 {
     if (!controllerAxesEnabled_ && !guiRayEnabled_ && !directionRaysEnabled_)
@@ -726,6 +842,13 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         -2.0f, 2.0f);
     controllerInputEnabled_ = ReadBoolean(L"controls", L"enabled", true);
     controllerAxesEnabled_ = ReadBoolean(L"controls", L"show_controller_axes", true);
+    ammoQuadEnabled_ = ReadBoolean(L"hud", L"ammo_quad", true);
+    ammoQuadWidthMeters_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_width_meters", 0.07f), 0.01f, 0.5f);
+    ammoQuadOffset_ = {(std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_x", 0.0f), -0.5f, 0.5f),
+        (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_y", 0.04f), -0.5f, 0.5f),
+        (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_z", -0.02f), -0.5f, 0.5f)};
+    ammoQuadTiltDegrees_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_tilt_degrees", 40.0f), -180.0f, 180.0f);
+    ammoQuadPixelHeight_ = (std::clamp)(ReadUnsigned(L"hud", L"ammo_quad_pixel_height", 48), 8u, 256u);
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
     guiRayEnabled_ = ReadBoolean(L"controls", L"show_gui_ray", true) &&
         controllerInputEnabled_;
@@ -1523,6 +1646,9 @@ void OpenXrHost::RenderFrame()
     for (std::uint32_t index = 0; index < axisLayerCount && layerCount < layers.size(); ++index)
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
             &axisLayers[index]);
+    XrCompositionLayerQuad ammoLayer{};
+    if (layerCount && !guiVisible && layerCount < layers.size() && PrepareAmmoLayer(ammoLayer))
+        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ammoLayer);
     if (layerCount && guiVisible && guiQuadHasImage_)
         layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&guiLayer);
     XrFrameEndInfo endInfo(MakeXr<XrFrameEndInfo>(XR_TYPE_FRAME_END_INFO));
@@ -1582,6 +1708,9 @@ void OpenXrHost::Shutdown() noexcept
     axisSwapchain_.images.clear();
     if (axisSwapchain_.handle != XR_NULL_HANDLE)
         xrDestroySwapchain(axisSwapchain_.handle);
+    if (ammoSwapchain_.handle != XR_NULL_HANDLE)
+        xrDestroySwapchain(ammoSwapchain_.handle);
+    ammoSwapchain_ = {};
     axisSwapchain_.handle = XR_NULL_HANDLE;
     for (XrSpace& space : aimSpaces_)
         if (space != XR_NULL_HANDLE) xrDestroySpace(space);

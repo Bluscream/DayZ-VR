@@ -18,6 +18,7 @@
 #include <array>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 #include <wrl/client.h>
 
@@ -79,6 +80,19 @@ private:
         std::vector<XrSwapchainImageD3D11KHR> images;
     };
 
+    // Controller-anchored ammo display ([hud] ammo_quad): seven-segment bitmap uploaded
+    // only when the shown text changes, submitted as one quad layer at the right grip.
+    struct AmmoSwapchain
+    {
+        XrSwapchain handle{XR_NULL_HANDLE};
+        std::vector<XrSwapchainImageD3D11KHR> images;
+        unsigned width{};
+        unsigned height{};
+        std::string text;
+        std::uint32_t colour{};
+        bool hasImage{};
+    };
+
     bool CreateInstanceAndSystem();
     bool CreateCompatibleDevice();
     bool ValidateDevice(ID3D11Device* device);
@@ -87,6 +101,9 @@ private:
     bool CreateSpaces();
     bool CreateSwapchains();
     bool CreateGuiSwapchain(const std::vector<std::int64_t>& formats);
+    bool CreateAmmoSwapchain(const std::vector<std::int64_t>& formats);
+    // Builds the ammo quad for this frame; returns false when nothing should be shown.
+    bool PrepareAmmoLayer(XrCompositionLayerQuad& layer) noexcept;
     bool CreateControllerActions();
     bool CreateAxisSwapchain(const std::vector<std::int64_t>& formats);
     void SyncControllerInput(XrTime displayTime, bool guiVisible);
@@ -150,6 +167,12 @@ private:
     bool guiQuadHasImage_{};
     bool controllerInputEnabled_{true};
     bool controllerAxesEnabled_{true};
+    bool ammoQuadEnabled_{true};
+    float ammoQuadWidthMeters_{0.07f};
+    XrVector3f ammoQuadOffset_{0.0f, 0.04f, -0.02f};
+    float ammoQuadTiltDegrees_{40.0f};
+    unsigned ammoQuadPixelHeight_{48};
+    AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};
     float guiRayThickness_{0.004f};
