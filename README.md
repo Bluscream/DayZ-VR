@@ -2,6 +2,8 @@
 
 An experimental, unofficial VR prototype for the Windows x64 version of DayZ. It presents DayZ through an OpenXR runtime and modifies selected rendering, camera, GUI, and mouse-input behavior inside the running game. The proxy currently recognizes the matching retail `DayZ_x64.exe` and diagnostic `DayZDiag_x64.exe` builds.
 
+[FEATURES.md](FEATURES.md) lists every feature with its origin and verification state; [TODO.md](TODO.md) lists what is unfinished; [TASKS.md](TASKS.md) is the per-track backlog with history.
+
 ## Showcase video
 
 [![DayZ OpenXR VR Mod](https://img.youtube.com/vi/35tf5tsaD5c/0.jpg)](https://youtu.be/35tf5tsaD5c)

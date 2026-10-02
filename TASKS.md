@@ -3,6 +3,8 @@
 Living backlog. Tracks are never "done": each keeps a *State* (what exists today), *Next*
 (the concrete next step) and *Open questions*, so work can resume on any track after a
 detour. Update the entry when you touch the track; keep history in git, not here.
+The flat views are `FEATURES.md` (what works, with verification state) and `TODO.md` (what
+does not yet); update them when a track's State changes.
 
 ## R1. True per-frame stereo (double world render)
 - State: `[stereo] stereo_mode=double` (experimental, off by default) hooks the world
