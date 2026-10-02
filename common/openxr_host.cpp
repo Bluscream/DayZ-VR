@@ -1202,8 +1202,10 @@ void OpenXrHost::RenderFrame()
 {
     XrFrameWaitInfo waitInfo(MakeXr<XrFrameWaitInfo>(XR_TYPE_FRAME_WAIT_INFO));
     XrFrameState frameState(MakeXr<XrFrameState>(XR_TYPE_FRAME_STATE));
+    const auto frameStart = std::chrono::steady_clock::now();
     if (!Check(xrWaitFrame(session_, &waitInfo, &frameState), "xrWaitFrame"))
         return;
+    timing_.waitFrame += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
     XrFrameBeginInfo beginInfo(MakeXr<XrFrameBeginInfo>(XR_TYPE_FRAME_BEGIN_INFO));
     if (!Check(xrBeginFrame(session_, &beginInfo), "xrBeginFrame"))
         return;
@@ -1268,6 +1270,17 @@ void OpenXrHost::RenderFrame()
             pose << "pose q=(" << q.x << ',' << q.y << ',' << q.z << ',' << q.w
                  << ") ypr=(" << yaw << ',' << pitch << ',' << roll << ") fps="
                  << lastFps_ << " state=" << static_cast<int>(sessionState_);
+            if (timing_.frames > 0)
+            {
+                // Where the frame time goes inside the OpenXR calls (ms per frame, averaged
+                // over the log interval): a wait-bound game shows up here, a CPU/GPU-bound
+                // one in the remainder (frame interval minus xr_total).
+                const double n = static_cast<double>(timing_.frames);
+                pose << " xr_ms wait_frame=" << timing_.waitFrame / n << " wait_image=" << timing_.waitImage / n
+                     << " end_frame=" << timing_.endFrame / n << " total=" << timing_.total / n
+                     << " interval=" << (seconds * 1000.0 / 120.0);
+                timing_ = {};
+            }
             logging::Info(pose.str());
         }
         {
@@ -1291,8 +1304,10 @@ void OpenXrHost::RenderFrame()
                 continue;
             XrSwapchainImageWaitInfo imageWait(MakeXr<XrSwapchainImageWaitInfo>(XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO));
             imageWait.timeout = XR_INFINITE_DURATION;
+            const auto imageWaitStart = std::chrono::steady_clock::now();
             const bool ready = Check(xrWaitSwapchainImage(swapchain.handle, &imageWait),
                 "xrWaitSwapchainImage");
+            timing_.waitImage += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - imageWaitStart).count();
             if (ready)
             {
                 EyeRenderInfo renderInfo{};
@@ -1515,7 +1530,11 @@ void OpenXrHost::RenderFrame()
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     endInfo.layerCount = layerCount;
     endInfo.layers = layerCount ? layers.data() : nullptr;
+    const auto endStart = std::chrono::steady_clock::now();
     Check(xrEndFrame(session_, &endInfo), "xrEndFrame");
+    timing_.endFrame += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - endStart).count();
+    timing_.total += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
+    ++timing_.frames;
 }
 
 OpenXrHost::DebugSnapshot OpenXrHost::GetDebugSnapshot() const noexcept

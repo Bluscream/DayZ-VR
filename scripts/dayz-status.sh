@@ -64,13 +64,12 @@ dayz_pids() { pgrep -f 'DayZ_x6[4]\.exe' || true; }
 
 if (( wait_seconds > 0 )); then
   say "waiting up to ${wait_seconds}s for in-world, fatal exception or exit"
-  if [[ -f "$log" ]]; then
-    # In-world is signalled by the first alternating-eye verification (needs a game camera);
-    # a fatal exception by the crash reporter. Bounded by timeout, no loop.
-    timeout "$wait_seconds" bash -c \
-      "tail -n +$((since + 1)) -F '$log' | grep -m1 'Alternating eye camera verified\|Double world render frame 1 \|\] Fatal exception'" \
-      | cut -c1-140 || echo "  (timeout: neither marker appeared)"
-  fi
+  # In-world is signalled by the first alternating-eye verification (needs a game camera);
+  # a fatal exception by the crash reporter. Bounded by timeout, no loop. tail -F keeps
+  # retrying until the log exists (the launch script moves the previous one away).
+  timeout "$wait_seconds" bash -c \
+    "tail -n +$((since + 1)) -F '$log' 2>/dev/null | grep -m1 'Alternating eye camera verified\|Double world render frame 1 \|\] Fatal exception'" \
+    | cut -c1-140 || echo "  (timeout: neither marker appeared)"
 fi
 
 say "game install"

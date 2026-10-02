@@ -86,7 +86,7 @@ if [[ -f "$openxr_log" ]]; then
   mv -f -- "$openxr_log" "$openxr_log.1"
   say "moved the previous dayz_openxr.log ($(du -h "$openxr_log.1" | cut -f1)) to dayz_openxr.log.1"
 fi
-rm -f -- "$dayz_dir"/dayz_openxr_eye*.bmp
+rm -f -- "$dayz_dir"/dayz_openxr_eye*.bmp "$appdata_dayz"/dayzvr/*.txt
 echo 0 > "$log_dir/openxr-log-offset.txt"
 # ----------------------------------------------------------------------------------
 

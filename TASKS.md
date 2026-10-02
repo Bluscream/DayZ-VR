@@ -45,17 +45,18 @@ detour. Update the entry when you touch the track; keep history in git, not here
   reprojection pass in `dayz_frame_source.cpp`.
 
 ## R3. Headless frame-rate ceiling
-- State: 14-20 fps on the sim rig (Monado null compositor), 67 fps with WiVRn on the
-  headset. Cause unknown; the aim loop was verified at this rate anyway. The user asked
-  (2026-10-02) for this to be investigated when time allows, online research included.
-- Next: (1) measure flat fps (OpenXR `enabled=false`) on the same rig to separate game
-  cost from runtime cost; (2) time xrWaitFrame/xrEndFrame in the host log (`fps=` lines
-  only give the result); (3) Monado knobs: `XRT_COMPOSITOR_DEFAULT_FRAMERATE`,
-  `XRT_COMPOSITOR_COMPUTE`, the null/headless compositor's fake vblank period, and the
-  simulated HMD's nominal refresh in `src/xrt/drivers/simulated`; (4) swapchain image
-  count / `XR_KHR_D3D11_enable` interop copies (DXVK → Vulkan import) may serialise the
-  GPU; (5) GE-Proton11-7 via PROTON_DIR; (6) search Monado issues for "simulated driver
-  frame rate" / "null compositor fps".
+- State (resolved 2026-10-02): the 14-20 fps on the sim rig was Monado's null
+  compositor, which hard-codes a 20 fps frame interval (`null_compositor.c`:
+  `U_TIME_1S_IN_NS / 20`) and ignores `XRT_COMPOSITOR_DEFAULT_FRAMERATE`; xrWaitFrame
+  blocked ~45 ms of every 50 ms frame (host log `xr_ms wait_frame=`). `scripts/xr-sim.sh`
+  now defaults to `SIM_COMPOSITOR=window` (main compositor, `XRT_COMPOSITOR_FORCE_WAYLAND`,
+  paced at SIM_FRAMERATE=90): 75-85 fps in-world, wait_frame 2 ms, game thread 70 %
+  CPU (now game-bound like on the headset's 67 fps). `SIM_COMPOSITOR=null` keeps the
+  old headless path. Sources kept in `build/monado-src/` (not committed).
+- Next: the per-frame `xr_ms` breakdown stays in the pose log line; use it on the headset
+  to see whether WiVRn's wait dominates there too. If the Wayland window is unwanted on a
+  truly headless box, `XRT_COMPOSITOR_FORCE_VK_DISPLAY` or a patched null compositor.
+- Open: none.
 
 ## S1. Lua scripting layer
 - State: research done. UEVR vendors Lua 5.4.4 (`.references/repos/injectors/UEVR/

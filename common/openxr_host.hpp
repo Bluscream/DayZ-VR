@@ -100,6 +100,11 @@ private:
     mutable std::mutex debugMutex_;
     DebugSnapshot debugSnapshot_{};
     double lastFps_{};
+    struct FrameTiming
+    {
+        double waitFrame{}, waitImage{}, endFrame{}, total{};
+        unsigned frames{};
+    } timing_{};
     XrInstance instance_{XR_NULL_HANDLE};
     XrSystemId systemId_{XR_NULL_SYSTEM_ID};
     XrSession session_{XR_NULL_HANDLE};

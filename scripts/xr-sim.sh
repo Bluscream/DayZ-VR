@@ -12,6 +12,11 @@
 #   scripts/xr-sim.sh env      print the environment a game needs to use this runtime
 #
 # Environment overrides: BUILD_CONTAINER (default build-box), SIM_FRAMERATE (default 90),
+# SIM_COMPOSITOR=window|null (default window). Monado's null compositor hard-codes a
+# 20 fps frame interval (null_compositor.c: U_TIME_1S_IN_NS / 20) and ignores
+# XRT_COMPOSITOR_DEFAULT_FRAMERATE, so xrWaitFrame blocks the game for ~45 ms per frame
+# (measured 2026-10-02: 14-20 fps). "window" runs the main compositor into a small
+# Wayland window instead, paced at SIM_FRAMERATE; "null" keeps the headless one.
 # SIM_ROTATE=1 makes the simulated HMD spin continuously (known yaw rate for calibration).
 # SIM_CONTROLLERS=<simple|wmr|ml2> adds simulated left/right controllers of that type.
 set -euo pipefail
@@ -66,11 +71,17 @@ cmd_start() {
     return
   fi
   install_runtime
-  say "starting monado-service (simulated HMD, null compositor); log: $log_dir/monado-sim.log"
+  say "starting monado-service (simulated HMD, ${SIM_COMPOSITOR:-window} compositor); log: $log_dir/monado-sim.log"
   # XRT_NO_STDIN keeps the service from reading the terminal; XRT_COMPOSITOR_NULL
   # avoids opening any window; SIMULATED_ENABLE forces the simulated builder.
   # XRT_COMPOSITOR_DEFAULT_FRAMERATE paces the null compositor like a real HMD.
-  distrobox enter "$container" -- env XRT_NO_STDIN=1 XRT_COMPOSITOR_NULL=1 \
+  local compositor_env
+  if [[ "${SIM_COMPOSITOR:-window}" == "null" ]]; then
+    compositor_env="XRT_COMPOSITOR_NULL=1"
+  else
+    compositor_env="XRT_COMPOSITOR_FORCE_WAYLAND=1"
+  fi
+  distrobox enter "$container" -- env XRT_NO_STDIN=1 "$compositor_env" \
     XRT_COMPOSITOR_DEFAULT_FRAMERATE="${SIM_FRAMERATE:-90}" \
     SIMULATED_ENABLE=1 SIMULATED_ROTATE="${SIM_ROTATE:-0}" \
     SIMULATED_LEFT="${SIM_CONTROLLERS:-}" SIMULATED_RIGHT="${SIM_CONTROLLERS:-}" \
@@ -126,6 +137,6 @@ case "${1:-}" in
   stop) cmd_stop ;;
   status) cmd_status ;;
   env) cmd_env ;;
-  -h | --help | "") sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; [[ -n "${1:-}" ]] || exit 2 ;;
+  -h | --help | "") sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; [[ -n "${1:-}" ]] || exit 2 ;;
   *) die "unknown command: $1" ;;
 esac
