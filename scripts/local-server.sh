@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vanilla DayZ dedicated server on this machine for testing the VR proxy without
 # touching the user's real server. Runs inside the same container image the
-# Pterodactyl egg uses (ghcr.io/parkervcp/games:dayz) with host networking, from a
+# Pterodactyl egg uses (ghcr.io/parkervcp/games:dayz) with loopback-only published ports, from a
 # private copy of Steam's "DayZ Server" (app 223350) install, with BattlEye patched
 # out by pterodactyl-eggs/dayz-standalone/patch_be.pl so a -nobe client can join.
 #
@@ -12,7 +12,7 @@
 #   scripts/local-server.sh logs     follow the server log (Ctrl-C to stop following)
 #
 # Join from the client with: scripts/run-dayz-direct.sh --sim -- -connect=127.0.0.1 -port=2302
-# Environment overrides: DAYZ_SERVER_SRC, EGGS_DIR, SERVER_IMAGE, SERVER_PORT.
+# Environment overrides: DAYZ_SERVER_SRC, EGGS_DIR, SERVER_IMAGE, SERVER_PORT, SERVER_QUERY_PORT.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -23,6 +23,14 @@ server_src="${DAYZ_SERVER_SRC:-/run/media/system/Data/Games/Steam/steamapps/comm
 eggs_dir="${EGGS_DIR:-/run/media/system/Data/Projects/pterodactyl-eggs/dayz-standalone}"
 image="${SERVER_IMAGE:-ghcr.io/parkervcp/games:dayz}"
 port="${SERVER_PORT:-2302}"
+[[ "$port" =~ ^[0-9]+$ ]] || { echo "SERVER_PORT must be numeric" >&2; exit 2; }
+port=$((10#$port))
+query_port="${SERVER_QUERY_PORT:-$((port + 3))}"
+[[ "$query_port" =~ ^[0-9]+$ ]] || { echo "SERVER_QUERY_PORT must be numeric" >&2; exit 2; }
+query_port=$((10#$query_port))
+(( port >= 1024 && port <= 65532 && query_port >= 1024 && query_port <= 65535 )) || {
+  echo "server ports must be in 1024..65535 (game port at most 65532)" >&2; exit 2;
+}
 container_name="dayz-vr-local-server"
 
 say() { printf '==> %s\n' "$*"; }
@@ -32,9 +40,15 @@ cmd_setup() {
   [[ -f "$server_src/DayZServer" ]] || die "DayZ Server (app 223350) is not installed at $server_src"
   [[ -f "$eggs_dir/patch_be.pl" ]] || die "patch_be.pl not found in $eggs_dir"
   command -v podman >/dev/null || die "podman is required"
+  if podman container exists "$container_name"; then
+    local running
+    running="$(podman inspect --format '{{.State.Running}}' "$container_name")"
+    [[ "$running" == false ]] || die "stop the local server before setup; refusing to overwrite a running instance"
+  fi
   mkdir -p "$server_dir"
   say "copying the server install to $server_dir (first run copies ~3.8 GB)"
-  rsync -a --delete --exclude serverprofile --exclude serverDZ.cfg "$server_src/" "$server_dir/"
+  rsync -a --delete --exclude serverprofile --exclude serverDZ.cfg \
+    --exclude @DayZVR_Server --exclude .steam "$server_src/" "$server_dir/"
   mkdir -p "$server_dir/serverprofile" "$server_dir/.steam/sdk64"
   cp -f "$server_dir/steamclient.so" "$server_dir/.steam/sdk64/steamclient.so"
   say "patching BattlEye out of the server binary"
@@ -62,7 +76,7 @@ storageAutoFix = 1;
 lootHistory = 1;
 storeHouseStateDisabled = false;
 allowFilePatching = 1;
-steamQueryPort = 2305;
+steamQueryPort = $query_port;
 enableDebugMonitor = 1;
 logAverageFps = 60;
 logMemory = 60;
@@ -96,8 +110,11 @@ cmd_start() {
   fi
   say "starting $container_name on UDP $port (log: scripts/local-server.sh logs)"
   # --userns=keep-id keeps the host uid so the image's 'container' user (uid 1000)
-  # owns the mounted files; host networking so the client reaches 127.0.0.1:$port.
-  podman run -d --name "$container_name" --network host --userns=keep-id \
+  # owns the mounted files. Publish game/Steam/query UDP only on loopback, since
+  # this unsigned test server is intended solely for the local test client.
+  podman run -d --name "$container_name" --network bridge --userns=keep-id \
+    -p "127.0.0.1:$port-$((port + 2)):$port-$((port + 2))/udp" \
+    -p "127.0.0.1:$query_port:$query_port/udp" \
     -v "$server_dir:/home/container:Z" -w /home/container --entrypoint /bin/bash "$image" \
     -c "./DayZServer -config=serverDZ.cfg -port=$port -profiles=serverprofile -BEpath=battleye -dologs -adminlog -limitFPS=60 $server_mods" \
     >/dev/null
