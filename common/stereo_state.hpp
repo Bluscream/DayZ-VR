@@ -57,6 +57,9 @@ namespace dayz::stereo_state
     void UpdateCameraDirections(float nativeX, float nativeY, float nativeZ,
         float renderX, float renderY, float renderZ) noexcept;
     CameraDirections GetCameraDirections() noexcept;
+    // Reject stale poses after tracking/session loss. Each getter returns a
+    // complete tuple; no reader can see partially invalidated pose components.
+    void InvalidateTracking() noexcept;
     unsigned RenderedEye() noexcept;
     void AdvanceEye() noexcept;
     void SetRenderedEye(unsigned eye) noexcept;

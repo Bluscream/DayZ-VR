@@ -1,19 +1,18 @@
 #include "stereo_state.hpp"
 
-#include <array>
 #include <atomic>
+#include <mutex>
 
 namespace
 {
-    std::array<std::atomic<float>, 6> g_positions{};
-    std::atomic_bool g_valid{};
-    std::array<std::atomic<float>, 4> g_orientation{{0.0f, 0.0f, 0.0f, 1.0f}};
-    std::atomic_uint g_orientationSequence{};
-    std::array<std::atomic<float>, 3> g_hmdPosition{};
-    std::atomic_uint g_positionSequence{};
-    std::array<std::atomic<float>, 6> g_cameraDirections{{0.0f, 0.0f, -1.0f,
-        0.0f, 0.0f, -1.0f}};
-    std::atomic_uint g_cameraDirectionSequence{};
+    // Pose tuples are read by camera, render and debug threads. A single lock
+    // publishes complete values and makes tracking invalidation indivisible.
+    std::mutex g_poseMutex;
+    dayz::stereo_state::EyePositions g_positions{};
+    dayz::stereo_state::HmdOrientation g_orientation{};
+    dayz::stereo_state::HmdPosition g_hmdPosition{};
+    dayz::stereo_state::CameraDirections g_cameraDirections{};
+    dayz::stereo_state::HmdOrientation g_aimOrientation{};
     std::atomic_uint g_eye{};
     std::atomic<float> g_imageShift{};
     std::atomic_uint g_fitMode{static_cast<unsigned>(dayz::stereo_state::FitMode::Contain)};
@@ -23,114 +22,64 @@ namespace
 
 namespace dayz::stereo_state
 {
-    void UpdateEyePositions(float leftX, float leftY, float leftZ,
-        float rightX, float rightY, float rightZ) noexcept
+    void UpdateEyePositions(float leftX, float, float,
+        float rightX, float, float) noexcept
     {
-        const float values[] = {leftX, leftY, leftZ, rightX, rightY, rightZ};
-        for (std::size_t index = 0; index < std::size(values); ++index)
-            g_positions[index].store(values[index], std::memory_order_relaxed);
-        g_valid.store(true, std::memory_order_release);
+        std::scoped_lock lock(g_poseMutex);
+        g_positions = {leftX, rightX, true};
     }
 
     EyePositions GetEyePositions() noexcept
     {
-        EyePositions result{};
-        result.valid = g_valid.load(std::memory_order_acquire);
-        result.leftX = g_positions[0].load(std::memory_order_relaxed);
-        result.rightX = g_positions[3].load(std::memory_order_relaxed);
-        return result;
+        std::scoped_lock lock(g_poseMutex);
+        return g_positions;
     }
 
     void UpdateHmdOrientation(float x, float y, float z, float w) noexcept
     {
-        g_orientationSequence.fetch_add(1, std::memory_order_acq_rel);
-        const float values[]{x, y, z, w};
-        for (std::size_t index = 0; index < std::size(values); ++index)
-            g_orientation[index].store(values[index], std::memory_order_relaxed);
-        g_orientationSequence.fetch_add(1, std::memory_order_release);
+        std::scoped_lock lock(g_poseMutex);
+        g_orientation = {x, y, z, w, true};
     }
 
     HmdOrientation GetHmdOrientation() noexcept
     {
-        HmdOrientation result{};
-        for (;;)
-        {
-            const unsigned before = g_orientationSequence.load(std::memory_order_acquire);
-            if (before & 1u)
-                continue;
-            result.x = g_orientation[0].load(std::memory_order_relaxed);
-            result.y = g_orientation[1].load(std::memory_order_relaxed);
-            result.z = g_orientation[2].load(std::memory_order_relaxed);
-            result.w = g_orientation[3].load(std::memory_order_relaxed);
-            const unsigned after = g_orientationSequence.load(std::memory_order_acquire);
-            if (before == after)
-            {
-                result.valid = after != 0;
-                return result;
-            }
-        }
+        std::scoped_lock lock(g_poseMutex);
+        return g_orientation;
     }
 
     void UpdateHmdPosition(float x, float y, float z) noexcept
     {
-        g_positionSequence.fetch_add(1, std::memory_order_acq_rel);
-        const float values[]{x, y, z};
-        for (std::size_t index = 0; index < std::size(values); ++index)
-            g_hmdPosition[index].store(values[index], std::memory_order_relaxed);
-        g_positionSequence.fetch_add(1, std::memory_order_release);
+        std::scoped_lock lock(g_poseMutex);
+        g_hmdPosition = {x, y, z, true};
     }
 
     HmdPosition GetHmdPosition() noexcept
     {
-        HmdPosition result{};
-        for (;;)
-        {
-            const unsigned before = g_positionSequence.load(std::memory_order_acquire);
-            if (before & 1u)
-                continue;
-            result.x = g_hmdPosition[0].load(std::memory_order_relaxed);
-            result.y = g_hmdPosition[1].load(std::memory_order_relaxed);
-            result.z = g_hmdPosition[2].load(std::memory_order_relaxed);
-            const unsigned after = g_positionSequence.load(std::memory_order_acquire);
-            if (before == after)
-            {
-                result.valid = after != 0;
-                return result;
-            }
-        }
+        std::scoped_lock lock(g_poseMutex);
+        return g_hmdPosition;
     }
 
     void UpdateCameraDirections(float nativeX, float nativeY, float nativeZ,
         float renderX, float renderY, float renderZ) noexcept
     {
-        g_cameraDirectionSequence.fetch_add(1, std::memory_order_acq_rel);
-        const float values[]{nativeX, nativeY, nativeZ, renderX, renderY, renderZ};
-        for (std::size_t index = 0; index < std::size(values); ++index)
-            g_cameraDirections[index].store(values[index], std::memory_order_relaxed);
-        g_cameraDirectionSequence.fetch_add(1, std::memory_order_release);
+        std::scoped_lock lock(g_poseMutex);
+        g_cameraDirections = {nativeX, nativeY, nativeZ, renderX, renderY, renderZ, true};
     }
 
     CameraDirections GetCameraDirections() noexcept
     {
-        CameraDirections result{};
-        for (;;)
-        {
-            const unsigned before = g_cameraDirectionSequence.load(std::memory_order_acquire);
-            if (before & 1u)
-                continue;
-            result.nativeX = g_cameraDirections[0].load(std::memory_order_relaxed);
-            result.nativeY = g_cameraDirections[1].load(std::memory_order_relaxed);
-            result.nativeZ = g_cameraDirections[2].load(std::memory_order_relaxed);
-            result.renderX = g_cameraDirections[3].load(std::memory_order_relaxed);
-            result.renderY = g_cameraDirections[4].load(std::memory_order_relaxed);
-            result.renderZ = g_cameraDirections[5].load(std::memory_order_relaxed);
-            const unsigned after = g_cameraDirectionSequence.load(std::memory_order_acquire);
-            if (before == after)
-            {
-                result.valid = after != 0;
-                return result;
-            }
-        }
+        std::scoped_lock lock(g_poseMutex);
+        return g_cameraDirections;
+    }
+
+    void InvalidateTracking() noexcept
+    {
+        std::scoped_lock lock(g_poseMutex);
+        g_positions = {};
+        g_orientation = {};
+        g_hmdPosition = {};
+        g_cameraDirections = {};
+        g_aimOrientation = {};
     }
 
     unsigned RenderedEye() noexcept
@@ -189,33 +138,16 @@ namespace dayz::stereo_state
         return result;
     }
 
-    namespace
-    {
-        std::atomic<float> g_aimX{0.0f};
-        std::atomic<float> g_aimY{0.0f};
-        std::atomic<float> g_aimZ{0.0f};
-        std::atomic<float> g_aimW{1.0f};
-        std::atomic<bool> g_aimValid{false};
-    }
-
     void UpdateAimOrientation(float x, float y, float z, float w, bool valid) noexcept
     {
-        g_aimX.store(x, std::memory_order_relaxed);
-        g_aimY.store(y, std::memory_order_relaxed);
-        g_aimZ.store(z, std::memory_order_relaxed);
-        g_aimW.store(w, std::memory_order_relaxed);
-        g_aimValid.store(valid, std::memory_order_release);
+        std::scoped_lock lock(g_poseMutex);
+        g_aimOrientation = {x, y, z, w, valid};
     }
 
     HmdOrientation GetAimOrientation() noexcept
     {
-        HmdOrientation result{};
-        result.valid = g_aimValid.load(std::memory_order_acquire);
-        result.x = g_aimX.load(std::memory_order_relaxed);
-        result.y = g_aimY.load(std::memory_order_relaxed);
-        result.z = g_aimZ.load(std::memory_order_relaxed);
-        result.w = g_aimW.load(std::memory_order_relaxed);
-        return result;
+        std::scoped_lock lock(g_poseMutex);
+        return g_aimOrientation;
     }
 
     namespace
