@@ -26,6 +26,7 @@ namespace dayz::script_bridge
         int stance{-1};
         bool raised{};
         bool inVehicle{};
+        bool melee{};        // fists or a melee weapon in hands (motion melee may swing)
     };
 
     void Initialize(const wchar_t* iniPath) noexcept;

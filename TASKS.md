@@ -127,8 +127,11 @@ detour. Update the entry when you touch the track; keep history in git, not here
 - State (07:15): magazine changes and low ammo verified on the sim: `hands M4A1 - 3`
   shows amber "3+1", `hands M4A1 - 0` amber "0+1" (red only when nothing is loaded),
   text re-rasterises on change (`build/logs/ammo-quad-3plus1-amber.png`).
-- Next: verify weapon switching (melee/none hides the quad) and the red state on the
-  quad; verify physical-controller placement/readability (sim grips sit at the
+- State (07:17): weapon switching verified: `hands HuntingKnife` clears weapon/ammo in
+  the bridge and the quad disappears.
+- Next: verify the red state (no magazine, empty chamber shows nothing by design, so
+  red only appears for ammo=0 without chamber); verify physical-controller
+  placement/readability (sim grips sit at the
   frame edge, so the quad clips there). Keep the Enforce label available as the
   fallback. Fix bridge freshness/internal-magazine audit
   findings before treating displayed values as reliable for every weapon.
@@ -178,9 +181,17 @@ detour. Update the entry when you touch the track; keep history in git, not here
 ## M2. Motion-controlled melee
 - State: idea. DayZ melee is a key press with animation (`MeleeCombat`, `DayZPlayerMeleeFightLogic_LightHeavy`), hit detection server-side from the animation. Controller
   pose and velocity are available natively (grip pose per frame).
-- Next: (1) native: swing detection from right-controller velocity (speed threshold,
-  direction) → emit the melee key (light tap, heavy on fast swing) only while a melee
-  weapon or fists are in hands (game.txt weapon class / `weapon=` empty + no item);
+- State (2026-10-02 07:20): step (1) implemented, default off. `common/melee_swing.*`
+  (pure `SwingDetector`: smoothed grip speed, swing starts above `light_speed`, peak
+  classified light/heavy, one event per swing, cooldown + rearm below `rearm_speed`;
+  `tests/melee_swing_test.cpp` in the gate). Host `UpdateMotionMelee` taps the attack
+  button (left mouse) for light, holds it `heavy_hold_seconds` for heavy, only while
+  the bridge reports `melee=1` (fists or `IsMeleeWeapon()` in hands), no inventory, no
+  GUI quad, window focused. `[melee]` ini keys are live tunables (`melee.*`). Sim
+  controllers are static, so only the negative path is verified in-game (enabled live,
+  no spurious events, bridge flag toggles with knife vs rifle).
+- Next: real-headset tuning of the speed thresholds and the heavy hold time
+  (DayZ's heavy attack needs the button held through the wind-up);
   (2) hand-model alignment: controller aim already drives the camera, melee needs the
   weapon rotation to follow the hand (Enforce: `player.GetItemInHands()` has no public
   transform override; investigate `DayZPlayerImplement` bone override / `Human` IK or

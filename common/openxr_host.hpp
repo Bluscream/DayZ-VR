@@ -2,6 +2,7 @@
 
 #include "dayz_runtime_probe.hpp"
 #include "frame_source.hpp"
+#include "melee_swing.hpp"
 #include "xr_structure.hpp"
 #include "xr_swapchain_image.hpp"
 
@@ -110,6 +111,7 @@ private:
     bool CreateAxisSwapchain(const std::vector<std::int64_t>& formats);
     void SyncControllerInput(XrTime displayTime, bool guiVisible, bool injectInput);
     void ReleaseInjectedInput() noexcept;  // held keys/mouse buttons only; poses stay
+    bool UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept;
     void ReleaseControllerKeys() noexcept; // ReleaseInjectedInput + forget controller poses
     void PollEvents();
     void RenderFrame();
@@ -181,7 +183,16 @@ private:
     std::atomic<float> ammoQuadOffsetZ_{-0.02f};
     std::atomic<float> ammoQuadTiltDegrees_{40.0f};
     unsigned ammoQuadPixelHeight_{48};
-    std::array<dayz::runtime_probe::ExternalTunable, 6> hostTunables_{};
+    // Motion melee ([melee]): right grip swings become attack presses while fists or
+    // a melee weapon are in hands. Live tunables like the ammo quad.
+    std::atomic<float> meleeMotionSwing_{0.0f};
+    std::atomic<float> meleeLightSpeed_{1.6f};
+    std::atomic<float> meleeHeavySpeed_{3.2f};
+    std::atomic<float> meleeCooldownSeconds_{0.5f};
+    std::atomic<float> meleeHeavyHoldSeconds_{0.45f};
+    dayz::melee::SwingDetector meleeSwing_;
+    XrTime meleeReleaseTime_{};  // attack key held until this display time (0 = not held)
+    std::array<dayz::runtime_probe::ExternalTunable, 11> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

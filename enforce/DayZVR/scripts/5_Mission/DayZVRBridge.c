@@ -86,6 +86,10 @@ class DayZVRBridge
 		FPrintln(file, "stance=" + movement.m_iStanceIdx.ToString());
 		FPrintln(file, "raised=" + BoolText(movement.IsRaised()));
 		FPrintln(file, "in_vehicle=" + BoolText(player.IsInVehicle()));
+		// Fists (nothing in hands) or a melee weapon: the native side may turn controller
+		// swings into attacks ([melee] motion_swing).
+		EntityAI inHands = player.GetItemInHands();
+		FPrintln(file, "melee=" + BoolText(!inHands || inHands.IsMeleeWeapon()));
 		FPrintln(file, "ammo_label=" + BoolText(DayZVRAmmoCounter.s_Visible) + " " + DayZVRAmmoCounter.s_LastScreen.ToString(false));
 		CloseFile(file);
 	}

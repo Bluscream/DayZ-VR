@@ -158,6 +158,7 @@ namespace dayz::script_bridge
                     else if (!strcmp(key, "stance")) state.stance = atoi(value);
                     else if (!strcmp(key, "raised")) state.raised = atoi(value) != 0;
                     else if (!strcmp(key, "in_vehicle")) state.inVehicle = atoi(value) != 0;
+                    else if (!strcmp(key, "melee")) state.melee = atoi(value) != 0;
                 }
                 if (!end)
                     break;

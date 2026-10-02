@@ -2,6 +2,7 @@
 #include "openxr_host.hpp"
 
 #include "ammo_display.hpp"
+#include "melee_swing.hpp"
 #include "xr_frame_policy.hpp"
 #include "comfort.hpp"
 #include "script_bridge.hpp"
@@ -858,6 +859,11 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     ammoQuadOffsetZ_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_offset_z", -0.02f), -0.5f, 0.5f);
     ammoQuadTiltDegrees_ = (std::clamp)(ReadFloat(L"hud", L"ammo_quad_tilt_degrees", 40.0f), -180.0f, 180.0f);
     ammoQuadPixelHeight_ = (std::clamp)(ReadUnsigned(L"hud", L"ammo_quad_pixel_height", 48), 8u, 256u);
+    meleeMotionSwing_ = ReadBoolean(L"melee", L"motion_swing", false) ? 1.0f : 0.0f;
+    meleeLightSpeed_ = (std::clamp)(ReadFloat(L"melee", L"light_speed", 1.6f), 0.2f, 20.0f);
+    meleeHeavySpeed_ = (std::clamp)(ReadFloat(L"melee", L"heavy_speed", 3.2f), 0.2f, 20.0f);
+    meleeCooldownSeconds_ = (std::clamp)(ReadFloat(L"melee", L"cooldown_seconds", 0.5f), 0.0f, 5.0f);
+    meleeHeavyHoldSeconds_ = (std::clamp)(ReadFloat(L"melee", L"heavy_hold_seconds", 0.45f), 0.05f, 2.0f);
     // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
     hostTunables_ = {{
         {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
@@ -866,6 +872,11 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         {"hud.ammo_quad_offset_y", &ammoQuadOffsetY_, -0.5f, 0.5f},
         {"hud.ammo_quad_offset_z", &ammoQuadOffsetZ_, -0.5f, 0.5f},
         {"hud.ammo_quad_tilt_degrees", &ammoQuadTiltDegrees_, -180.0f, 180.0f},
+        {"melee.motion_swing", &meleeMotionSwing_, 0.0f, 1.0f},
+        {"melee.light_speed", &meleeLightSpeed_, 0.2f, 20.0f},
+        {"melee.heavy_speed", &meleeHeavySpeed_, 0.2f, 20.0f},
+        {"melee.cooldown_seconds", &meleeCooldownSeconds_, 0.0f, 5.0f},
+        {"melee.heavy_hold_seconds", &meleeHeavyHoldSeconds_, 0.05f, 2.0f},
     }};
     dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
@@ -1016,11 +1027,51 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
     dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
 }
 
+// Feeds the right grip position to the swing detector and holds DayZ's attack
+// button (left mouse) for a tap or a heavy-attack hold. Returns true while held.
+bool OpenXrHost::UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept
+{
+    if (meleeReleaseTime_ && displayTime >= meleeReleaseTime_)
+        meleeReleaseTime_ = 0;
+    if (meleeMotionSwing_.load(std::memory_order_relaxed) == 0.0f || guiVisible)
+    {
+        meleeSwing_.Reset();
+        return meleeReleaseTime_ != 0;
+    }
+    const XrSpaceLocation& grip = gripLocations_[1];
+    const dayz::script_bridge::GameState game = dayz::script_bridge::GetGameState();
+    if (!(grip.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) || !game.valid ||
+        !game.melee || game.inventoryOpen)
+    {
+        meleeSwing_.Reset();
+        return meleeReleaseTime_ != 0;
+    }
+    dayz::melee::Config config;
+    config.lightSpeed = meleeLightSpeed_.load(std::memory_order_relaxed);
+    config.heavySpeed = meleeHeavySpeed_.load(std::memory_order_relaxed);
+    config.cooldownSeconds = meleeCooldownSeconds_.load(std::memory_order_relaxed);
+    const dayz::melee::Swing swing = meleeSwing_.Update(grip.pose.position.x, grip.pose.position.y,
+        grip.pose.position.z, dt, config);
+    if (swing != dayz::melee::Swing::None && !meleeReleaseTime_)
+    {
+        const float holdSeconds = swing == dayz::melee::Swing::Heavy ?
+            meleeHeavyHoldSeconds_.load(std::memory_order_relaxed) : 0.06f;
+        meleeReleaseTime_ = displayTime + static_cast<XrTime>(holdSeconds * 1e9f);
+        std::ostringstream message;
+        message << "motion melee: " << (swing == dayz::melee::Swing::Heavy ? "heavy" : "light")
+            << " swing at " << meleeSwing_.Speed() << " m/s";
+        logging::Info(message.str());
+    }
+    return meleeReleaseTime_ != 0;
+}
+
 void OpenXrHost::ReleaseInjectedInput() noexcept
 {
     leftStickClickDown_ = false;
     snapTurnArmed_ = true;
     lastTurnTime_ = 0;
+    meleeReleaseTime_ = 0;
+    meleeSwing_.Reset();
     guiRayValid_ = false;
     const auto comfort = dayz::stereo_state::GetComfortVignette();
     dayz::stereo_state::SetComfortVignette(0.0f, comfort.radius);
@@ -1290,8 +1341,9 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
     updateHotbar(leftGrabDown && bDown, hotbarNextDown_, hotbarNextKey_, 1,
         "controller LGRAB+B");
 
-    const bool desiredLeftMouse = rightTriggerState.isActive &&
-        rightTriggerState.currentState > 0.55f;
+    const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);
+    const bool desiredLeftMouse = meleeHeld || (rightTriggerState.isActive &&
+        rightTriggerState.currentState > 0.55f);
     if (desiredLeftMouse != leftMouseDown_)
     {
         SendMouseButton(false, desiredLeftMouse);
