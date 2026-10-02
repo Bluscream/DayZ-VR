@@ -146,6 +146,19 @@ For a cautious forwarding-only test, first set `[openxr] enabled=false`, launch 
 
 When using a square game image, expect oversized UI elements because the current UI scale follows frame height. Adjust the window resolution in `\Documents\DayZ\DayZ.cfg` and the relevant HUD settings in `dayz_openxr.ini` as needed.
 
+### Config editor
+
+`tools/config-editor` is a small self-contained GUI (Rust, egui) for `dayz_openxr.ini`: one
+binary, no runtime dependencies, Linux and Windows (`dayz-vr-config` / `dayz-vr-config.exe`,
+built by `scripts/build-config-editor.sh` into `build/config-editor/`; the Windows build was
+checked under Proton). Start it with the ini path as argument or drop the file onto the
+window. Every key is described by `dayz_openxr.schema.json` (display name, help text, type,
+range, step, unit, enum values, live/restart/unused flags), so booleans are checkboxes, enums
+are dropdowns, numbers are drag fields; each key has a reset to the saved value and to the
+default. Comments and formatting of the ini are preserved on save. With DayZ running and the
+debug plugin enabled, **Connect** reaches the plugin's port, **Apply N live** pushes the
+changed live tunables without a restart, and **Recenter** recenters the HMD.
+
 ## Runtime control for testing
 
 `dayz_openxr_debug.dll` is an optional plugin that exposes live tracking state and lets you change tunables while DayZ runs, so calibrating head-turn scale, camera separation or FOV does not need a restart. It is never linked into `dxgi.dll`; the proxy only shares the C header `common/dayz_vr_debug_api.h` with it and loads it by name when enabled.

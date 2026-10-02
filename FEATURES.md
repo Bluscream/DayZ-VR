@@ -117,4 +117,5 @@ or a hotkey toggle.
 | Command wrapper | `scripts/dayz-cmd.sh [--client] <verb> …` sends a command and waits for its echo in the result log. | new | daily |
 | One-shot regression | `scripts/regression-run.sh [--skip-build] [--keep] [--no-sim]` runs the whole cycle with per-step PASS/FAIL and full logs under `build/logs/regression-<stamp>/`. | new | 11/11 PASS 2026-10-02 |
 | Log tools | `scripts/dayz_log.py` bounded log following and summaries. | new | tests |
+| Config editor | `tools/config-editor` (Rust/egui, single binary for Linux and Windows): schema-driven form for every ini key from `dayz_openxr.schema.json` (display names, help, types, ranges, enums, unused/restart/live tags), per-key reset, comment-preserving save, live apply and recenter through the debug plugin. `scripts/build-config-editor.sh` runs fmt/clippy/test/doc and both release builds. | new | Linux desktop, Windows exe under Proton, 14 unit tests + schema parity test |
 | Offline modding reference | `.references/docs/dayz-modding/` (symlink, not in the repo): vanilla script sources, GUI layouts, wiki pages, sample repos. | new | used |

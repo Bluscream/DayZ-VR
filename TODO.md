@@ -49,7 +49,8 @@ unproven, **headset** = implemented and sim-verified, waits for a real headset,
 | --- | --- | --- | --- |
 | In-game settings menu for every mod setting | planned | U2 | Decision made: reuse DayZ's own UI from the Enforce mod (options built from `.layout` widgets, values through the bridge). Not started. |
 | Every ini key as a runtime tunable with a "needs restart" flag | partial | U2 | 23 host keys and the render-path keys are live; keys consumed at hook installation (`runtime_probe`, HUD safe area, resolution override) still need a restart, and the render-path table is separate from the host table. |
-| Persisting runtime changes back to the ini | planned | U2 | Values set live are lost on exit. |
+| Persisting runtime changes back to the ini | planned | U2 | Values set live are lost on exit. The desktop config editor (`tools/config-editor`) covers edit + apply live + save outside the game; in-game persistence is still open. |
+| Dead ini keys | planned | U2 | `[render] mode`, `[render] submit_when_unfocused`, `[openxr] debug_layer`, `[openxr] reference_space`, `[logging] level` are never read (marked `unused` in the schema and editor). Remove them or implement them. |
 | Wrist-anchored dashboard | planned | V2, S2 | Data path and screen-space line exist; a native quad or left-grip projection is next. |
 | Ammo quad placement with real controllers | headset | U1 | Sim grips sit at the frame edge, so the quad clips there. |
 | Ammo quad red state | partial | U1 | Red is only reachable with ammo=0 and no chamber; unverified. |

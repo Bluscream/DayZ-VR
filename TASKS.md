@@ -161,6 +161,12 @@ does not yet); update them when a track's State changes.
   23 entries (`hud.* melee.* vehicle.* stance.* haptics.*`) listed and range-checked
   through `dayz-vr-ctl.py` on the sim. The render-path tunables (`[stereo]`/`[gui]`/
   `[comfort]`) still live in the probe's own table.
+- State (15:20): outside the game the whole ini is editable through
+  `tools/config-editor` (single binary, Linux + Windows, schema-driven from
+  `dayz_openxr.schema.json`, applies live tunables through the debug plugin). The
+  schema is the first complete per-key metadata table (type, range, enum, live/
+  restart/unused) and `tests/test_config_schema.py` keeps it in step with the ini and
+  the two native tunable tables; the in-game menu can be generated from it.
 - Next: (1) make as many settings as possible runtime tunables (register every ini
   key through one table with type/range/"needs restart" flag, so the ini parser, the
   debug protocol `tunables`, hotkey toggles and the UI all share it; fold the host's
