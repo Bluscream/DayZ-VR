@@ -30,7 +30,9 @@ add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/melee_swing.cpp
   common/vehicle_steering.cpp
   common/physical_stance.cpp
-  common/shot_detector.cpp)
+  common/shot_detector.cpp
+  common/input_actions.cpp
+  common/dayz_input_hooks.cpp)
 target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)

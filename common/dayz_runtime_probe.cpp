@@ -5,6 +5,7 @@
 #include "crash_report.hpp"
 #include "dayz_hotkeys.hpp"
 #include "dayz_patches.hpp"
+#include "dayz_input_hooks.hpp"
 #include "hmd_aim_loop.hpp"
 #include "projection_replay.hpp"
 #include "gui_capture_sizing.hpp"
@@ -3239,6 +3240,7 @@ namespace dayz::runtime_probe
             return false;
         }
         InstallGuiMouseApiHook();
+        dayz::input_hooks::Initialize(ConfigurationFile().c_str(), g_moduleBase, kImageSize);
         g_keepFocusEnabled = ReadBoolean(L"hooks", L"keep_focus", true);
         InstallKeepFocusHooks();
         bool frameRefreshHookCreated{};
