@@ -106,6 +106,7 @@ class DayZVRBridge
 			FPrintln(file, "gear=" + car.GetGear().ToString());
 			FPrintln(file, "rpm=" + car.EngineGetRPM().ToString());
 			FPrintln(file, "engine=" + BoolText(car.EngineIsOn()));
+			FPrintln(file, "lights=" + BoolText(car.IsScriptedLightsOn()));
 			FPrintln(file, "fuel=" + car.GetFluidFraction(CarFluid.FUEL).ToString());
 		}
 		// Fists (nothing in hands) or a melee weapon: the native side may turn controller
@@ -143,12 +144,16 @@ class DayZVRBridge
 		DayZVRSteering.s_VrPedalsValid = Vr("pedals_valid") == "1";
 		DayZVRSteering.s_VrThrottle = VrFloat("throttle");
 		DayZVRSteering.s_VrBrake = VrFloat("brake");
+		DayZVRSteering.s_VrButtonA = Vr("btn_a") == "1";
+		DayZVRSteering.s_VrStickClickR = Vr("stick_click_r") == "1";
+		DayZVRSteering.s_VrGrabL = VrFloat("grab_l");
 	}
 
 	// Test hooks for the host (scripts/dayz-cmd.sh --client): lines in
 	// $profile:dayzvr/client_cmd.txt, results appended to client_cmd.log.
 	//   raise <0|1>        hold the weapon raised (OverrideRaise ENABLED/DISABLED)
 	//   fire               pull the trigger once through WeaponManager.Fire (test aid)
+	//   engine|lights|horn what the in-car A / grip+A / right stick click do (test aid)
 	//   enter              get into the driver seat of the nearest vehicle (<= 15 m)
 	//                      (vehicle command queued for the CommandHandler tick)
 	//   exit               leave the current vehicle (same mechanism)
@@ -222,6 +227,15 @@ class DayZVRBridge
 				return "cannot fire now (raise it first, wait for the raise to finish)";
 			player.GetWeaponManager().Fire(weapon);
 			return "fired " + weapon.GetType();
+		}
+		if (verb == "engine" || verb == "lights" || verb == "horn")
+		{
+			HumanCommandVehicle vehicleCommand = player.GetCommand_Vehicle();
+			CarScript car;
+			if (!vehicleCommand || !Class.CastTo(car, vehicleCommand.GetTransport()))
+				return "not in a car";
+			car.DayZVRTestButton(player, verb);
+			return verb + " -> engine_on=" + car.EngineIsOn().ToString();
 		}
 		if (verb == "steer" && words.Count() > 1)
 		{

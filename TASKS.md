@@ -276,7 +276,19 @@ detour. Update the entry when you touch the track; keep history in git, not here
   did (real headset or a sim with scripted trigger values); (2) real-headset tuning of
   `wheel_max_degrees`/`deadzone`; (3) hands visibly on the wheel (hand models) once the
   hand-model track exists; (4) wrist dashboard (Enforce widget or native quad) from the
-  new game.txt keys; engine start/horn/lights on buttons while driving.
+  new game.txt keys.
+- State (09:12): in-car buttons through the bridge: the host stops injecting A /
+  LGRAB+A / hotbar chords while `in_vehicle` and the mod reads `btn_a`, `grab_l`,
+  `stick_click_r` from vr.txt: A = engine start/stop (client-side `EngineStart`/
+  `EngineStop` as the vanilla actions do for physics vehicles; stop refused above
+  8 km/h), grip+A = `ActionSwitchLights`, right stick click = `ActionCarHornShort`
+  (both through `ActionManagerClient.PerformActionStart`, so the server executes
+  them). B stays the handbrake. Client test verbs `engine|lights|horn`. Sim: engine
+  1 -> rpm 800 -> 0 verified; lights/horn actions accepted (`lights=` added to
+  game.txt for the readback, unverified until the next launch).
+- Next: (5) verify `lights=` flips and the horn is audible on a real client;
+  (6) seated recenter / view lock to vehicle yaw; (7) a native fire hook to remove
+  the 100 ms haptic latency.
 
 ## C1. Window-drag crash
 - State: guard patch (`[patches] guard_execute_without_prepared_view`) deployed; crash

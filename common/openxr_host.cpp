@@ -1534,7 +1534,9 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         "controller LGRAB+Y -> Tab down", "controller LGRAB+Y -> Tab up");
     updateKey('F', rightGrabDown, rightGrabDown_,
         "controller RGRAB -> F down", "controller RGRAB -> F up");
-    updateKey(VK_SHIFT, aDown && !leftGrabDown, aButtonDown_,
+    // While driving, A (engine), LGRAB+A (headlights) and the right stick click (horn)
+    // belong to the @DayZVR mod, which reads them from vr.txt; B stays the handbrake.
+    updateKey(VK_SHIFT, aDown && !leftGrabDown && !driving, aButtonDown_,
         "controller A -> Shift down", "controller A -> Shift up");
     updateKey(VK_SPACE, bDown && !leftGrabDown, bButtonDown_,
         "controller B -> Space down", "controller B -> Space up");
@@ -1566,9 +1568,9 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         }
         current = desired;
     };
-    updateHotbar(leftGrabDown && aDown, hotbarPreviousDown_, hotbarPreviousKey_, -1,
+    updateHotbar(leftGrabDown && aDown && !driving, hotbarPreviousDown_, hotbarPreviousKey_, -1,
         "controller LGRAB+A");
-    updateHotbar(leftGrabDown && bDown, hotbarNextDown_, hotbarNextKey_, 1,
+    updateHotbar(leftGrabDown && bDown && !driving, hotbarNextDown_, hotbarNextKey_, 1,
         "controller LGRAB+B");
 
     const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);

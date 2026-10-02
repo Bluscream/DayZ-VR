@@ -21,6 +21,11 @@ class DayZVRSteering
 	static float s_VrThrottle = 0;
 	static float s_VrBrake = 0;
 	static const float PEDAL_MIN = 0.02; // below this the keyboard keeps control
+	// Raw controller state while driving (host stops injecting these as keys in a car):
+	// A = engine start/stop, left grip + A = headlights, right stick click = horn.
+	static bool s_VrButtonA = false;
+	static bool s_VrStickClickR = false;
+	static float s_VrGrabL = 0;
 
 	static bool Active()
 	{
@@ -80,12 +85,89 @@ modded class PlayerBase
 
 modded class CarScript
 {
+	bool m_DayZVRButtonAWas;
+	bool m_DayZVRStickClickRWas;
+
+	// Runs a vanilla vehicle user action for the local driver (server-authoritative
+	// actions such as lights and horn travel through the action manager as if the
+	// player had pressed their key).
+	protected void DayZVRPerformAction(PlayerBase player, typename actionType)
+	{
+		ActionManagerClient manager = ActionManagerClient.Cast(player.GetActionManager());
+		ActionBase action = ActionManagerBase.GetAction(actionType);
+		if (!manager || !action)
+		{
+			Print("[DayZVR] vehicle action unavailable: " + actionType.ToString());
+			return;
+		}
+		ActionTarget target = new ActionTarget(this, null, -1, vector.Zero, 0);
+		if (!action.Can(player, target, null))
+		{
+			Print("[DayZVR] vehicle action refused: " + actionType.ToString());
+			return;
+		}
+		manager.PerformActionStart(action, target, null);
+		Print("[DayZVR] vehicle action " + actionType.ToString());
+	}
+
+	// Engine start/stop is client-side in vanilla for physics vehicles (the actions
+	// call EngineStart/EngineStop on the client and C++ validates), so call it directly.
+	protected void DayZVRToggleEngine(PlayerBase player)
+	{
+		if (EngineIsOn())
+		{
+			if (GetSpeedometerAbsolute() > 8)
+			{
+				Print("[DayZVR] engine stop refused while moving");
+				return;
+			}
+			EngineStop();
+			Print("[DayZVR] engine stop");
+		}
+		else
+		{
+			EngineStart();
+			Print("[DayZVR] engine start");
+		}
+	}
+
+	protected void DayZVRHandleButtons(PlayerBase player)
+	{
+		bool a = DayZVRSteering.s_VrButtonA && DayZVRSteering.Fresh();
+		bool horn = DayZVRSteering.s_VrStickClickR && DayZVRSteering.Fresh();
+		if (a && !m_DayZVRButtonAWas)
+		{
+			if (DayZVRSteering.s_VrGrabL > 0.55)
+				DayZVRPerformAction(player, ActionSwitchLights);
+			else
+				DayZVRToggleEngine(player);
+		}
+		if (horn && !m_DayZVRStickClickRWas)
+			DayZVRPerformAction(player, ActionCarHornShort);
+		m_DayZVRButtonAWas = a;
+		m_DayZVRStickClickRWas = horn;
+	}
+
+	// Test hook for the bridge's client commands (engine|lights|horn).
+	void DayZVRTestButton(PlayerBase player, string what)
+	{
+		if (what == "engine")
+			DayZVRToggleEngine(player);
+		else if (what == "lights")
+			DayZVRPerformAction(player, ActionSwitchLights);
+		else if (what == "horn")
+			DayZVRPerformAction(player, ActionCarHornShort);
+	}
+
 	override void OnUpdate(float dt)
 	{
 		super.OnUpdate(dt);
 		Human driver = CrewDriver();
 		if (!driver || driver != GetGame().GetPlayer())
 			return;
+		PlayerBase localPlayer = PlayerBase.Cast(driver);
+		if (localPlayer)
+			DayZVRHandleButtons(localPlayer);
 		float wanted;
 		if (DayZVRSteering.Wanted(wanted))
 		{
