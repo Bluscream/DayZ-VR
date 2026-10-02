@@ -5,6 +5,7 @@
 #include "dayz_hotkeys.hpp"
 #include "dayz_patches.hpp"
 #include "hmd_aim_loop.hpp"
+#include "script_bridge.hpp"
 
 #include "logging.hpp"
 #include "stereo_state.hpp"
@@ -3123,6 +3124,7 @@ namespace dayz::runtime_probe
         dayz::crash_report::Install(g_moduleBase, kImageSize, &DumpCrashContext);
         dayz::patches::Initialize(ConfigurationFile().c_str());
         dayz::hotkeys::Initialize(ConfigurationFile().c_str());
+        dayz::script_bridge::Initialize(ConfigurationFile().c_str());
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
         g_stereoDouble = _wcsicmp(ReadString(L"stereo", L"stereo_mode", L"alternate").c_str(), L"double") == 0;
         g_doubleCaptureClear = (std::clamp)(ReadFloat(L"stereo", L"double_capture_clear", 3.0f), 1.0f, 64.0f);
@@ -3374,6 +3376,7 @@ namespace dayz::runtime_probe
         ApplyProfileFovOverride();
         ApplyActiveCameraFovOverride();
         dayz::hotkeys::Poll();
+        dayz::script_bridge::Update();
         UpdateNativeHmdAim();
         if (!IsGuiCursorModeActive())
             ResetInventoryPreviewAnchor();

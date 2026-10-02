@@ -94,6 +94,7 @@ step_test() {
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion'
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
+  python3 scripts/build-pbo.py enforce/DayZVR "build/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
     run_in_container "g++ $gpp_flags -Icommon tests/build_checks.cpp -o build/build_checks && ./build/build_checks build/dayz-image.bin" 2>&1 | tee "$log_dir/test-build-checks.log"
   else
@@ -157,6 +158,11 @@ step_deploy() {
     say "installed the reference dayz_openxr.ini (none was present)"
   else
     say "kept the existing dayz_openxr.ini"
+  fi
+  if [[ -f "$build_dir/@DayZVR/addons/DayZVR.pbo" ]]; then
+    mkdir -p "$dayz_dir/@DayZVR/addons"
+    cp -f "$build_dir/@DayZVR/addons/DayZVR.pbo" "$dayz_dir/@DayZVR/addons/DayZVR.pbo"
+    say "deployed the @DayZVR script bridge mod (launch with -mod=@DayZVR)"
   fi
   say "deployed; previous DLLs saved in $backup"
 }
