@@ -9,10 +9,11 @@ data size). The first entry is normally an empty-name "Vers" product entry
 (packing 0x56657273) followed by null-terminated key/value string pairs ended by
 an empty string. The header ends with an empty-name entry of 20 zero bytes, then
 the payloads follow in header order. Entries with packing 0x43707273 ("Cprs")
-are BI LZSS compressed and are expanded here; unknown methods are written raw and
-reported. Product properties (e.g. ``prefix``) are written to ``$PBOPREFIX$`` /
+are BI LZSS compressed and are expanded here; unknown methods are rejected.
+Product properties (e.g. ``prefix``) are written to ``$PBOPREFIX$`` /
 ``$PROPERTIES$`` files in the output root.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,7 +58,9 @@ def parse_header(data: bytes) -> tuple[dict[str, str], list[Entry], int]:
         raw_name, offset = read_cstring(data, offset)
         if offset + HEADER_STRUCT.size > len(data):
             raise PboError("truncated header entry")
-        packing, original, reserved, timestamp, size = HEADER_STRUCT.unpack_from(data, offset)
+        packing, original, reserved, timestamp, size = HEADER_STRUCT.unpack_from(
+            data, offset
+        )
         offset += HEADER_STRUCT.size
         if raw_name == b"" and packing == PACKING_VERS:
             while True:
@@ -70,7 +73,11 @@ def parse_header(data: bytes) -> tuple[dict[str, str], list[Entry], int]:
         if raw_name == b"":
             # Terminator: 20 zero bytes (some packers leave garbage; accept any).
             break
-        entries.append(Entry(raw_name.decode("latin-1"), packing, original, reserved, timestamp, size))
+        entries.append(
+            Entry(
+                raw_name.decode("latin-1"), packing, original, reserved, timestamp, size
+            )
+        )
     return properties, entries, offset
 
 
@@ -80,8 +87,10 @@ def lzss_decompress(src: bytes, expected: int) -> bytes:
     Back-reference: two bytes b1, b2; rpos = i - ((b1 | ((b2 & 0xF0) << 4)) );
     length = (b2 & 0x0F) + 3. If rpos is before the start of the output the
     missing bytes are spaces (0x20). The stream is followed by a 4-byte
-    checksum (sum of output bytes) which is validated when present.
+    checksum (sum of output bytes), which is required and validated.
     """
+    if expected > 512 * 1024 * 1024:
+        raise PboError("LZSS entry exceeds the 512 MiB output limit")
     out = bytearray()
     pos = 0
     n = len(src)
@@ -103,7 +112,10 @@ def lzss_decompress(src: bytes, expected: int) -> bytes:
                     raise PboError("LZSS pointer past end")
                 b1, b2 = src[pos], src[pos + 1]
                 pos += 2
-                rpos = len(out) - (b1 | ((b2 & 0xF0) << 4))
+                distance = b1 | ((b2 & 0xF0) << 4)
+                if distance == 0:
+                    raise PboError("LZSS back-reference has zero distance")
+                rpos = len(out) - distance
                 rlen = (b2 & 0x0F) + 3
                 for _ in range(rlen):
                     if len(out) >= expected:
@@ -113,18 +125,53 @@ def lzss_decompress(src: bytes, expected: int) -> bytes:
                     else:
                         out.append(out[rpos])
                     rpos += 1
-    if pos + 4 <= n:
-        (checksum,) = struct.unpack_from("<I", src, pos)
-        if checksum != sum(out) & 0xFFFFFFFF:
-            raise PboError("LZSS checksum mismatch")
+    if pos + 4 != n:
+        raise PboError("LZSS checksum is missing or has trailing data")
+    (checksum,) = struct.unpack_from("<I", src, pos)
+    if checksum != sum(out) & 0xFFFFFFFF:
+        raise PboError("LZSS checksum mismatch")
     return bytes(out)
 
 
 def safe_target(outdir: Path, name: str) -> Path:
-    parts = [p for p in name.replace("\\", "/").split("/") if p not in ("", ".", "..")]
-    if not parts:
+    normalized = name.replace("\\", "/")
+    parts = normalized.split("/")
+    if any(part in ("", ".", "..") or ":" in part for part in parts):
         raise PboError(f"unsafe entry name {name!r}")
-    return outdir.joinpath(*parts)
+    root = outdir.resolve()
+    target = root
+    for part in parts:
+        target = target / part
+        if target.is_symlink():
+            raise PboError(f"entry destination contains a symlink: {name!r}")
+    if not target.resolve().is_relative_to(root):
+        raise PboError(f"entry escapes output directory: {name!r}")
+    return target
+
+
+def validate_targets(
+    outdir: Path, entries: list[Entry], properties: dict[str, str]
+) -> None:
+    # Validate the entire namespace before creating any files. Case-insensitive
+    # collisions matter because these archives are normally consumed on Windows.
+    names = [entry.name for entry in entries]
+    if "prefix" in properties:
+        names.append("$PBOPREFIX$")
+    if properties:
+        names.append("$PROPERTIES$")
+    seen: set[str] = set()
+    for name in names:
+        safe_target(outdir, name)
+        normalized = name.replace("\\", "/").casefold()
+        if normalized in seen:
+            raise PboError(f"duplicate entry destination: {name!r}")
+        seen.add(normalized)
+    for name in names:
+        components = name.replace("\\", "/").casefold().split("/")
+        if any(
+            "/".join(components[:index]) in seen for index in range(1, len(components))
+        ):
+            raise PboError(f"file/directory collision: {name!r}")
 
 
 def unpack(pbo: Path, outdir: Path, list_only: bool, verbose: bool) -> int:
@@ -134,57 +181,76 @@ def unpack(pbo: Path, outdir: Path, list_only: bool, verbose: bool) -> int:
         for key, value in properties.items():
             print(f"property {key}={value}")
         for e in entries:
-            method = {PACKING_RAW: "raw", PACKING_CPRS: "lzss"}.get(e.packing, f"0x{e.packing:08x}")
+            method = {PACKING_RAW: "raw", PACKING_CPRS: "lzss"}.get(
+                e.packing, f"0x{e.packing:08x}"
+            )
             print(f"{e.data_size:>10} {e.original_size:>10} {method:<10} {e.name}")
         print(f"{len(entries)} entries, payload at {offset}, file {len(data)} bytes")
         return 0
 
-    outdir.mkdir(parents=True, exist_ok=True)
-    if "prefix" in properties:
-        (outdir / "$PBOPREFIX$").write_text(properties["prefix"] + "\n", encoding="latin-1")
-    if properties:
-        lines = "".join(f"{k}={v}\n" for k, v in properties.items())
-        (outdir / "$PROPERTIES$").write_text(lines, encoding="latin-1")
-
-    written = failed = compressed = unknown = 0
-    for e in entries:
-        blob = data[offset:offset + e.data_size]
-        offset += e.data_size
-        if len(blob) != e.data_size:
-            print(f"error: truncated payload for {e.name}", file=sys.stderr)
-            failed += 1
-            continue
-        if e.packing == PACKING_CPRS:
+    validate_targets(outdir, entries, properties)
+    payloads: list[tuple[Entry, bytes]] = []
+    compressed = 0
+    total_size = 0
+    for entry in entries:
+        total_size += (
+            entry.original_size if entry.packing == PACKING_CPRS else entry.data_size
+        )
+        if total_size > 2 * 1024 * 1024 * 1024:
+            raise PboError("archive exceeds the 2 GiB output limit")
+        blob = data[offset : offset + entry.data_size]
+        offset += entry.data_size
+        if len(blob) != entry.data_size:
+            raise PboError(f"truncated payload for {entry.name}")
+        if entry.packing == PACKING_CPRS:
             compressed += 1
             try:
-                blob = lzss_decompress(blob, e.original_size)
-            except PboError as exc:
-                print(f"error: {e.name}: {exc} (written raw)", file=sys.stderr)
-                failed += 1
-        elif e.packing != PACKING_RAW:
-            unknown += 1
-            print(f"warning: {e.name}: unknown packing 0x{e.packing:08x}, written raw", file=sys.stderr)
-        target = safe_target(outdir, e.name)
+                blob = lzss_decompress(blob, entry.original_size)
+            except PboError as error:
+                raise PboError(f"{entry.name}: {error}") from error
+        elif entry.packing != PACKING_RAW:
+            raise PboError(f"{entry.name}: unknown packing 0x{entry.packing:08x}")
+        payloads.append((entry, blob))
+
+    # No malformed entry can leave compressed/raw bytes masquerading as a valid
+    # extracted source file. Publish only after every payload has been decoded.
+    outdir.mkdir(parents=True, exist_ok=True)
+    if "prefix" in properties:
+        safe_target(outdir, "$PBOPREFIX$").write_text(
+            properties["prefix"] + "\n", encoding="latin-1"
+        )
+    if properties:
+        lines = "".join(f"{key}={value}\n" for key, value in properties.items())
+        safe_target(outdir, "$PROPERTIES$").write_text(lines, encoding="latin-1")
+    for entry, blob in payloads:
+        target = safe_target(outdir, entry.name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(blob)
-        written += 1
         if verbose:
             print(target)
+    written = len(payloads)
+
     remaining = len(data) - offset
     print(
         f"{pbo.name}: {written} files -> {outdir} "
-        f"(compressed {compressed}, unknown packing {unknown}, errors {failed}, "
+        f"(compressed {compressed}, "
         f"trailing {remaining} bytes, prefix {properties.get('prefix', '-')})"
     )
-    return 1 if failed else 0
+    return 0
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("pbo", type=Path)
     parser.add_argument("outdir", type=Path)
-    parser.add_argument("--list", action="store_true", help="list entries instead of extracting")
-    parser.add_argument("--verbose", action="store_true", help="print each written path")
+    parser.add_argument(
+        "--list", action="store_true", help="list entries instead of extracting"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="print each written path"
+    )
     args = parser.parse_args(argv)
     try:
         return unpack(args.pbo, args.outdir, args.list, args.verbose)

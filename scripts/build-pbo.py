@@ -8,6 +8,7 @@ file (name\\0, packing, original size, reserved, timestamp, data size), a zero
 terminator entry, the file payloads in order, then a zero byte and a SHA-1 of
 everything before it. No tool dependency; mirrors what armake/mikero produce.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,12 +18,22 @@ import sys
 from pathlib import Path
 
 
-def header_entry(name: bytes, packing: int, original: int, reserved: int, timestamp: int, size: int) -> bytes:
-    return name + b"\0" + struct.pack("<IIIII", packing, original, reserved, timestamp, size)
+def header_entry(
+    name: bytes, packing: int, original: int, reserved: int, timestamp: int, size: int
+) -> bytes:
+    return (
+        name
+        + b"\0"
+        + struct.pack("<IIIII", packing, original, reserved, timestamp, size)
+    )
 
 
 def build(source: Path, output: Path, prefix: str) -> int:
-    files = sorted(p for p in source.rglob("*") if p.is_file() and p.name != "$PBOPREFIX$")
+    files = sorted(
+        p
+        for p in source.rglob("*")
+        if p.is_file() and p.name not in {"$PBOPREFIX$", "$PROPERTIES$"}
+    )
     if not files:
         print(f"no files under {source}", file=sys.stderr)
         return 1
@@ -33,11 +44,13 @@ def build(source: Path, output: Path, prefix: str) -> int:
     for path in files:
         data = path.read_bytes()
         relative = path.relative_to(source).as_posix().replace("/", "\\").encode()
-        body += header_entry(relative, 0, len(data), 0, int(path.stat().st_mtime), len(data))
+        body += header_entry(
+            relative, 0, len(data), 0, int(path.stat().st_mtime), len(data)
+        )
         payload += data
     body += header_entry(b"", 0, 0, 0, 0, 0)
     body += payload
-    body += b"\0" + hashlib.sha1(bytes(body)).digest()
+    body += b"\0" + hashlib.sha1(bytes(body), usedforsecurity=False).digest()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(bytes(body))
     print(f"wrote {output} ({len(files)} files, {len(body)} bytes, prefix {prefix})")
@@ -45,7 +58,9 @@ def build(source: Path, output: Path, prefix: str) -> int:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--prefix", required=True)
