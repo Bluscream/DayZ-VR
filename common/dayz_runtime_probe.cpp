@@ -3736,8 +3736,19 @@ namespace dayz::runtime_probe
         }
     }
 
+    namespace
+    {
+        std::atomic<unsigned> g_recenterGeneration{};
+    }
+
+    unsigned RecenterGeneration() noexcept
+    {
+        return g_recenterGeneration.load(std::memory_order_relaxed);
+    }
+
     void RecenterHmd() noexcept
     {
+        g_recenterGeneration.fetch_add(1, std::memory_order_relaxed);
         g_haveHmdCenter = false;
         g_haveHmdPositionCenter = false;
         g_haveNativeHmdAngles = false;

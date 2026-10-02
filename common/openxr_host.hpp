@@ -3,6 +3,7 @@
 #include "dayz_runtime_probe.hpp"
 #include "frame_source.hpp"
 #include "melee_swing.hpp"
+#include "physical_stance.hpp"
 #include "vehicle_steering.hpp"
 #include "xr_structure.hpp"
 #include "xr_swapchain_image.hpp"
@@ -114,6 +115,7 @@ private:
     void ReleaseInjectedInput() noexcept;  // held keys/mouse buttons only; poses stay
     bool UpdateMotionMelee(XrTime displayTime, float dt, bool guiVisible) noexcept;
     void PublishVehicleSteering() noexcept;
+    void UpdatePhysicalStance(XrTime displayTime) noexcept;
     void ReleaseControllerKeys() noexcept; // ReleaseInjectedInput + forget controller poses
     void PollEvents();
     void RenderFrame();
@@ -203,7 +205,19 @@ private:
     std::atomic<float> vehicleDeadzone_{0.05f};
     std::atomic<float> vehicleInvert_{0.0f};
     std::atomic<float> vehicleRequireGrip_{1.0f};  // both squeeze > 0.5 to hold the wheel
-    std::array<dayz::runtime_probe::ExternalTunable, 16> hostTunables_{};
+    // Physical crouch/prone from head height ([stance]); standing height is captured
+    // at the first tracked frame and again after every recenter.
+    std::atomic<float> stancePhysical_{0.0f};
+    std::atomic<float> stanceCrouchDrop_{0.35f};
+    std::atomic<float> stanceProneDrop_{0.85f};
+    std::atomic<float> stanceHysteresis_{0.08f};
+    float standingHeight_{};
+    bool haveStandingHeight_{};
+    unsigned recenterGenerationSeen_{};
+    XrTime stanceKeyReleaseTime_{};
+    WORD stanceKey_{};
+    XrTime stanceNextChangeTime_{};
+    std::array<dayz::runtime_probe::ExternalTunable, 20> hostTunables_{};
     AmmoSwapchain ammoSwapchain_{};
     bool guiRayEnabled_{true};
     float guiRayLength_{2.0f};

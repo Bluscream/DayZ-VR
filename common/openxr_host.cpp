@@ -3,6 +3,7 @@
 
 #include "ammo_display.hpp"
 #include "melee_swing.hpp"
+#include "physical_stance.hpp"
 #include "vehicle_steering.hpp"
 #include "xr_frame_policy.hpp"
 #include "comfort.hpp"
@@ -894,6 +895,10 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
     vehicleDeadzone_ = (std::clamp)(ReadFloat(L"vehicle", L"deadzone", 0.05f), 0.0f, 0.9f);
     vehicleInvert_ = ReadBoolean(L"vehicle", L"invert", false) ? 1.0f : 0.0f;
     vehicleRequireGrip_ = ReadBoolean(L"vehicle", L"require_grip", true) ? 1.0f : 0.0f;
+    stancePhysical_ = ReadBoolean(L"stance", L"physical", false) ? 1.0f : 0.0f;
+    stanceCrouchDrop_ = (std::clamp)(ReadFloat(L"stance", L"crouch_drop", 0.35f), 0.05f, 1.5f);
+    stanceProneDrop_ = (std::clamp)(ReadFloat(L"stance", L"prone_drop", 0.85f), 0.1f, 2.0f);
+    stanceHysteresis_ = (std::clamp)(ReadFloat(L"stance", L"hysteresis", 0.08f), 0.0f, 0.5f);
     // Same names and ranges as the ini keys; the clamps above and these bounds must agree.
     hostTunables_ = {{
         {"hud.ammo_quad", &ammoQuadVisible_, 0.0f, 1.0f},
@@ -912,6 +917,10 @@ bool OpenXrHost::FinishInitialization(ID3D11Device* device)
         {"vehicle.deadzone", &vehicleDeadzone_, 0.0f, 0.9f},
         {"vehicle.invert", &vehicleInvert_, 0.0f, 1.0f},
         {"vehicle.require_grip", &vehicleRequireGrip_, 0.0f, 1.0f},
+        {"stance.physical", &stancePhysical_, 0.0f, 1.0f},
+        {"stance.crouch_drop", &stanceCrouchDrop_, 0.05f, 1.5f},
+        {"stance.prone_drop", &stanceProneDrop_, 0.1f, 2.0f},
+        {"stance.hysteresis", &stanceHysteresis_, 0.0f, 0.5f},
     }};
     dayz::runtime_probe::RegisterTunables(hostTunables_.data(), hostTunables_.size());
     controllerAxesEnabled_ = controllerAxesEnabled_ && controllerInputEnabled_;
@@ -1064,6 +1073,57 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
     dayz::script_bridge::SetVehiclePedals(0.0f, 0.0f, false);
 }
 
+// Head height below the standing reference selects crouch/prone; DayZ only has
+// toggle keys (C crouch, Z prone), so one tap at a time moves towards the wanted
+// stance and the bridge's reported stance confirms it before the next tap.
+void OpenXrHost::UpdatePhysicalStance(XrTime displayTime) noexcept
+{
+    if (stanceKeyReleaseTime_ && displayTime >= stanceKeyReleaseTime_)
+    {
+        SendKey(stanceKey_, false);
+        stanceKeyReleaseTime_ = 0;
+    }
+    const dayz::stereo_state::HmdPosition head = dayz::stereo_state::GetHmdPosition();
+    const unsigned generation = dayz::runtime_probe::RecenterGeneration();
+    if (generation != recenterGenerationSeen_)
+    {
+        recenterGenerationSeen_ = generation;
+        haveStandingHeight_ = false;
+    }
+    if (!head.valid)
+        return;
+    if (!haveStandingHeight_)
+    {
+        standingHeight_ = head.y;
+        haveStandingHeight_ = true;
+        return;
+    }
+    if (stancePhysical_.load(std::memory_order_relaxed) == 0.0f || stanceKeyReleaseTime_ ||
+        displayTime < stanceNextChangeTime_)
+        return;
+    const dayz::script_bridge::GameState game = dayz::script_bridge::GetGameState();
+    if (!game.valid || game.inventoryOpen || game.inVehicle || game.stance < 0)
+        return;
+    const int current = game.stance % 3;  // raised variants 3..5 map onto 0..2
+    dayz::physical_stance::Config config;
+    config.crouchDropMeters = stanceCrouchDrop_.load(std::memory_order_relaxed);
+    config.proneDropMeters = stanceProneDrop_.load(std::memory_order_relaxed);
+    config.hysteresisMeters = stanceHysteresis_.load(std::memory_order_relaxed);
+    const int desired = dayz::physical_stance::Desired(standingHeight_ - head.y, current, config);
+    if (desired == current)
+        return;
+    using dayz::physical_stance::Prone;
+    using dayz::physical_stance::Crouch;
+    stanceKey_ = static_cast<WORD>(desired == Prone || (current == Prone && desired != Crouch) ? 'Z' : 'C');
+    SendKey(stanceKey_, true);
+    stanceKeyReleaseTime_ = displayTime + 60000000;         // 60 ms tap
+    stanceNextChangeTime_ = displayTime + 700000000;        // let the animation finish
+    std::ostringstream message;
+    message << "physical stance: head drop " << (standingHeight_ - head.y) << " m, stance " << current
+        << " -> " << desired << " via " << static_cast<char>(stanceKey_);
+    logging::Info(message.str());
+}
+
 // Two-hand wheel from both grips -> vr.txt steer= (applied by the Enforce side only
 // while the local player drives, so publishing it every frame is harmless).
 void OpenXrHost::PublishVehicleSteering() noexcept
@@ -1147,6 +1207,11 @@ void OpenXrHost::ReleaseInjectedInput() noexcept
     lastTurnTime_ = 0;
     meleeReleaseTime_ = 0;
     meleeSwing_.Reset();
+    if (stanceKeyReleaseTime_)
+    {
+        SendKey(stanceKey_, false);
+        stanceKeyReleaseTime_ = 0;
+    }
     guiRayValid_ = false;
     const auto comfort = dayz::stereo_state::GetComfortVignette();
     dayz::stereo_state::SetComfortVignette(0.0f, comfort.radius);
@@ -1426,6 +1491,8 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         "controller LGRAB+B");
 
     const bool meleeHeld = UpdateMotionMelee(displayTime, inputSeconds, guiVisible);
+    if (!guiVisible)
+        UpdatePhysicalStance(displayTime);
     const bool desiredLeftMouse = meleeHeld || (!driving && rightTriggerState.isActive &&
         rightTriggerState.currentState > 0.55f);
     if (desiredLeftMouse != leftMouseDown_)

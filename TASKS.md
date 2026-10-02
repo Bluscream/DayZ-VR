@@ -322,10 +322,17 @@ detour. Update the entry when you touch the track; keep history in git, not here
   reach constraints and compatibility with locked doors/occupied seats.
 
 ## M5. Physical stance and traversal
-- State: desired; crouch/prone/mantle gesture mapping is not implemented.
-- Next: calibrated standing/seated height and hysteresis for crouch; explicit prone
-  gesture and recovery; investigate mantle/climb through existing DayZ actions.
-  Headset collision, body collision and render-only head offsets must agree.
+- State (2026-10-02 08:40): physical crouch/prone implemented, default off.
+  `common/physical_stance.*` (head drop below standing → Erect/Crouch/Prone with
+  hysteresis, host test) and host `UpdatePhysicalStance`: standing height captured at
+  the first tracked frame and after every recenter (`runtime_probe::RecenterGeneration`),
+  taps C (crouch) / Z (prone) toggles one at a time and waits 0.7 s for the bridge's
+  stance readback (raised variants 3..5 fold onto 0..2); off while GUI, inventory or
+  vehicle. `[stance]` keys are live tunables (`stance.*`). Sim HMD is static, so only
+  the negative path (no taps, tunables present) is verified.
+- Next: real-headset calibration of the drops (seated play needs a seated reference:
+  add `stance.seated` or capture-on-demand); mantle/climb through existing DayZ
+  actions; render-only head offset vs body collision agreement.
 - Open: safe threshold calibration, accessibility, accidental transitions, whether
   engine mantle supports reliable hand-driven input without replaying gameplay ticks.
 

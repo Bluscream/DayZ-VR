@@ -79,6 +79,9 @@ namespace dayz::runtime_probe
     void RegisterTunables(const ExternalTunable* table, std::size_t count) noexcept;
     // Forget the captured HMD yaw/position centre so the next frame recaptures it.
     void RecenterHmd() noexcept;
+    // Incremented by every RecenterHmd; lets other components (physical stance) re-read
+    // their own reference pose at the same moment.
+    unsigned RecenterGeneration() noexcept;
     // True while [stereo] hmd_aim_closed_loop drives DayZ's mouse camera.
     bool ClosedLoopAimActive() noexcept;
     // Rotates the closed-loop yaw target (radians, positive = left) for stick or
