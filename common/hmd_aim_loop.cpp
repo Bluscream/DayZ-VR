@@ -5,6 +5,13 @@
 
 namespace dayz::aim_loop
 {
+    void Suspend(State& state, double& pendingX, double& pendingY) noexcept
+    {
+        state = {};
+        pendingX = 0.0;
+        pendingY = 0.0;
+    }
+
     namespace
     {
         constexpr float kPi = 3.14159265358979323846f;

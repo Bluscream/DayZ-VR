@@ -2475,11 +2475,17 @@ float4 PSMain(VertexOutput input) : SV_Target
     void UpdateNativeHmdAim() noexcept
     {
         if (!g_hmdRotationEnabled || !g_hmdNativeAimEnabled)
+        {
+            dayz::aim_loop::Suspend(g_aimLoop, g_pendingMouseX, g_pendingMouseY);
             return;
+        }
         const dayz::stereo_state::HmdOrientation orientation =
             dayz::stereo_state::GetHmdOrientation();
         if (!orientation.valid)
+        {
+            dayz::aim_loop::Suspend(g_aimLoop, g_pendingMouseX, g_pendingMouseY);
             return;
+        }
         const Quaternion current = Normalize({orientation.x, orientation.y, orientation.z,
             orientation.w});
         const float yaw = std::atan2(
@@ -2502,8 +2508,17 @@ float4 PSMain(VertexOutput input) : SV_Target
         g_previousHmdYaw = yaw;
         g_previousHmdPitch = pitch;
 
-        if (!g_gameWindow || RealForegroundWindowImpl() != g_gameWindow)
+        // Use the raw cursor state: debounce is useful for the quad, but the
+        // first inventory frame already stops DayZ consuming gameplay input.
+        if (!g_gameWindow || RealForegroundWindowImpl() != g_gameWindow ||
+            RawGuiCursorModeActive())
+        {
+            dayz::aim_loop::Suspend(g_aimLoop, g_pendingMouseX, g_pendingMouseY);
+            g_controllerAimActive = false;
+            g_aimYawError = 0.0f;
+            g_aimPitchError = 0.0f;
             return;
+        }
 
         if (g_hmdAimClosedLoop)
             UpdateClosedLoopAim(yaw, pitch);
@@ -2513,18 +2528,6 @@ float4 PSMain(VertexOutput input) : SV_Target
                 g_pendingMouseX += static_cast<double>(yawDelta) * g_hmdMouseYawScale;
             if (!g_lockHmdPitch)
                 g_pendingMouseY += static_cast<double>(pitchDelta) * g_hmdMousePitchScale;
-        }
-        if (IsGuiCursorModeActive())
-        {
-            // DayZ blocks gameplay mouse-look while the inventory owns input.
-            // Keep the deltas queued; the render camera follows HMD directly
-            // meanwhile, and the game camera catches up when inventory closes.
-            if (!g_inventoryHmdLookEnabled)
-            {
-                g_pendingMouseX = 0.0;
-                g_pendingMouseY = 0.0;
-            }
-            return;
         }
         const LONG mouseX = static_cast<LONG>(std::trunc(g_pendingMouseX));
         const LONG mouseY = static_cast<LONG>(std::trunc(g_pendingMouseY));
@@ -2538,7 +2541,8 @@ float4 PSMain(VertexOutput input) : SV_Target
         input.mi.dx = mouseX;
         input.mi.dy = mouseY;
         input.mi.dwFlags = MOUSEEVENTF_MOVE;
-        SendInput(1, &input, sizeof(input));
+        if (SendInput(1, &input, sizeof(input)) != 1)
+            dayz::aim_loop::Suspend(g_aimLoop, g_pendingMouseX, g_pendingMouseY);
     }
 
     bool CenterPhysicalCursor(POINT& center) noexcept

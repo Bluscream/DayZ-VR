@@ -67,6 +67,11 @@ namespace dayz::aim_loop
 
     void Reset(State& state, const Config& config) noexcept;
 
+    // A blocked game input path cannot consume a correction or teach the gain
+    // estimator anything. Keep calibration outside this state, but discard both
+    // unsent counts and the response history before resuming with fresh error.
+    void Suspend(State& state, double& pendingX, double& pendingY) noexcept;
+
     // desired*/actual* are angles in radians in the same frame (OpenXR space).
     // Yaw errors are wrapped to [-pi, pi]; pitch is treated as absolute.
     Output Step(State& state, const Config& config, float desiredYaw, float desiredPitch,

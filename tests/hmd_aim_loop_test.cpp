@@ -101,6 +101,31 @@ namespace
         const Output out = Step(state, config, 0.001f, -0.001f, 0.0f, 0.0f);
         Expect(out.yawCounts == 0.0f && out.pitchCounts == 0.0f, "deadband");
     }
+
+    void TestBlockedInputDoesNotAccumulate()
+    {
+        Config config{};
+        State state{};
+        double pendingX = Step(state, config, 1.0f, 0.4f, 0.0f, 0.0f).yawCounts;
+        double pendingY = 0.75;
+        for (int frame = 0; frame < 10000; ++frame)
+        {
+            Suspend(state, pendingX, pendingY);
+            Expect(pendingX == 0.0 && pendingY == 0.0, "blocked input retained mouse counts");
+            Expect(!state.initialized && !state.yaw.haveLast && !state.pitch.haveLast,
+                "blocked input retained gain learning history");
+        }
+        const Output resumed = Step(state, config, 1.0f, 0.4f, 0.0f, 0.0f);
+        Expect(std::fabs(resumed.yawCounts) <= config.maxCountsPerFrame &&
+            std::fabs(resumed.pitchCounts) <= config.maxCountsPerFrame,
+            "resuming input exceeded the per-frame limit");
+        Expect(state.yaw.countsPerRadian == config.yawCountsPerRadian,
+            "resuming input learned from a correction the game never consumed");
+        Suspend(state, pendingX, pendingY);
+        const Output returned = Step(state, config, 0.0f, 0.0f, 0.0f, 0.0f);
+        Expect(returned.yawCounts == 0.0f && returned.pitchCounts == 0.0f,
+            "head returned to centre while blocked but old correction remained");
+    }
 }
 
 namespace
@@ -170,6 +195,7 @@ int main()
         TestWrapAround();
         TestPitchLimitNoWindup();
         TestDeadbandSilence();
+        TestBlockedInputDoesNotAccumulate();
         TestTurnRateCapDoesNotInflateGain();
         TestUnreachableTargetBacksOff();
     }
