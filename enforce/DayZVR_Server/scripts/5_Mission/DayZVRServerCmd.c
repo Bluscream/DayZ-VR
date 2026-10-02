@@ -233,7 +233,10 @@ class DayZVRServerCmd
 		if (words.Count() >= 5)
 			offset = Vector(words[2].ToFloat(), words[3].ToFloat(), words[4].ToFloat());
 		vector pos = player.GetPosition() + offset;
-		Object object = GetGame().CreateObjectEx(words[1], pos, ECE_PLACE_ON_SURFACE | ECE_CREATEPHYSICS);
+		// ECE_SETUP runs the full entity setup (the game's own ObjectSpawner uses
+		// ECE_SETUP|ECE_UPDATEPATHGRAPH|ECE_CREATEPHYSICS); without it a spawned car
+		// had no collision: players walked through it and it hit nothing.
+		Object object = GetGame().CreateObjectEx(words[1], pos, ECE_SETUP | ECE_PLACE_ON_SURFACE | ECE_CREATEPHYSICS | ECE_UPDATEPATHGRAPH);
 		if (!object)
 			return "cannot create " + words[1];
 		CarScript car = CarScript.Cast(object);
