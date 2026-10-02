@@ -39,4 +39,12 @@ namespace dayz::script_bridge
     void SetVehicleSteer(float steer, bool valid) noexcept;
     // Trigger pedals for vr.txt (pedals_valid=, throttle=, brake=), 0..1 each.
     void SetVehiclePedals(float throttle, float brake, bool valid) noexcept;
+    // Raw controller state for vr.txt so Enforce features can react to buttons
+    // (btn_x/y/a/b, stick_click_l/r as 0/1; grab_l/r, trigger_l/r as 0..1).
+    struct Buttons
+    {
+        bool x{}, y{}, a{}, b{}, stickClickLeft{}, stickClickRight{};
+        float grabLeft{}, grabRight{}, triggerLeft{}, triggerRight{};
+    };
+    void SetControllerButtons(const Buttons& buttons) noexcept;
 }

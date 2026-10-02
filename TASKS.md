@@ -93,10 +93,16 @@ detour. Update the entry when you touch the track; keep history in git, not here
   throw "cannot be called on client" (VM exceptions land in crash_*.log, one per
   frame); `PlayerBase.GetTransport` does not exist (compile error dialog blocks the
   launch). Client-safe: `m_HealthLevel`, `GetBleedingBits()`, `GetStaminaHandler()`.
-- Next: expose vr.txt data to a sample Enforce feature (U1 ammo counter needs the
-  native side, but a wrist HUD widget can be drawn from Enforce directly with the HMD
-  yaw); add buttons/hotkey events to vr.txt; JSON via `JsonFileLoader` if parsing
-  cost matters; `.bikey`/`.bisign` for signature-checking servers.
+- State (2026-10-02 08:45): vr.txt now also carries the wheel/pedals (`steer_valid
+  steer pedals_valid throttle brake`) and raw controller state (`btn_x/y/a/b`,
+  `stick_click_l/r`, `grab_l/r`, `trigger_l/r`), so Enforce features (U2 options menu,
+  wrist dashboard) can react to buttons without the native side knowing them. game.txt
+  gained `melee`, vehicle `steering speed driver gear rpm engine fuel`. World-module
+  classes cannot see Mission-module classes: the bridge pushes values into statics
+  (`DayZVRSteering`) for 4_World consumers.
+- Next: a wrist HUD widget drawn from Enforce (HMD yaw + hud rect are in vr.txt);
+  JSON via `JsonFileLoader` if parsing cost matters; `.bikey`/`.bisign` for
+  signature-checking servers.
 - Open: latency of 10 Hz file polling (fine for HUD data); alternative native hook
   into the script VM (would avoid files entirely).
 
@@ -185,7 +191,9 @@ detour. Update the entry when you touch the track; keep history in git, not here
   steering/pedal pipeline. Spawned cars are not CE-registered and vanish on reconnect.
 - State (08:32): `give` capped at 50, `info` reports position/direction/alive/vehicle/
   held item.
-- Next: `exit` (leave vehicle) command; argument length limits. This command channel is for the isolated
+- State (08:45): `exit` (client + server, `HumanCommandVehicle.GetOutVehicle` from the
+  CommandHandler tick) added.
+- Next: argument length limits; `give` into a specific slot. This command channel is for the isolated
   local test rig; public-server administration/authentication is not implemented.
 
 ## M2. Motion-controlled melee

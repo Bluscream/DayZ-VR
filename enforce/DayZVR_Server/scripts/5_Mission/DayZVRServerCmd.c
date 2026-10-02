@@ -16,6 +16,7 @@
 //   tpto [dx dy dz]            stand beside the nearest vehicle (model-space offset,
 //                              default -1.6 0 0.3 = driver's door)
 //   enter                      seat the player as driver of the nearest vehicle (<= 15 m)
+//   exit                       leave the current vehicle (run the client exit too)
 //   heal                       full health/blood/energy/water, no bleeding
 //   time <hour> [minute]       set the server clock
 //   weather clear|rain|fog     set weather instantly
@@ -103,6 +104,13 @@ class DayZVRServerCmd
 			return TeleportToVehicle(player, words);
 		if (verb == "enter")
 			return EnterVehicle(player);
+		if (verb == "exit")
+		{
+			if (!player.GetCommand_Vehicle())
+				return "not in a vehicle";
+			player.m_DayZVRServerGetOut = true;
+			return "leaving the vehicle on the next CommandHandler tick";
+		}
 		if (verb == "info")
 		{
 			string info = "pos=" + player.GetPosition().ToString() + " dir=" + player.GetDirection().ToString();

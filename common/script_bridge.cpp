@@ -33,6 +33,8 @@ namespace dayz::script_bridge
         std::atomic<float> g_throttle{};
         std::atomic<float> g_brake{};
         std::atomic<bool> g_pedalsValid{};
+        std::mutex g_buttonsMutex;
+        Buttons g_buttons;
         std::mutex g_stateMutex;
         GameState g_state;
         int g_lastLoggedAmmo{-2};
@@ -106,14 +108,21 @@ namespace dayz::script_bridge
                 viewPitchOffset = pitchOfDir(cams.renderY) - pitchOfDir(cams.nativeY);
             }
             const dayz::runtime_probe::HudContentRect hud = dayz::runtime_probe::GetHudContentRect();
-            char text[1024]{};
+            Buttons buttons;
+            {
+                std::lock_guard<std::mutex> lock(g_buttonsMutex);
+                buttons = g_buttons;
+            }
+            char text[1536]{};
             sprintf_s(text,
                 "frame=%llu\nhmd_valid=%d\nhmd_yaw=%.5f\nhmd_pitch=%.5f\nhmd_roll=%.5f\n"
                 "hmd_x=%.4f\nhmd_y=%.4f\nhmd_z=%.4f\naim_valid=%d\naim_yaw=%.5f\naim_pitch=%.5f\n"
                 "aim_yaw_error=%.5f\naim_pitch_error=%.5f\ngui_cursor=%d\nammo_counter=%d\n"
                 "view_yaw_offset=%.5f\nview_pitch_offset=%.5f\n"
                 "hud_left=%.4f\nhud_top=%.4f\nhud_width=%.4f\nhud_height=%.4f\n"
-                "steer_valid=%d\nsteer=%.4f\npedals_valid=%d\nthrottle=%.3f\nbrake=%.3f\n",
+                "steer_valid=%d\nsteer=%.4f\npedals_valid=%d\nthrottle=%.3f\nbrake=%.3f\n"
+                "btn_x=%d\nbtn_y=%d\nbtn_a=%d\nbtn_b=%d\nstick_click_l=%d\nstick_click_r=%d\n"
+                "grab_l=%.3f\ngrab_r=%.3f\ntrigger_l=%.3f\ntrigger_r=%.3f\n",
                 static_cast<unsigned long long>(g_frame), hmd.valid ? 1 : 0,
                 hmd.valid ? yawOf(hmd) : 0.0f, hmd.valid ? pitchOf(hmd) : 0.0f, hmd.valid ? rollOf(hmd) : 0.0f,
                 position.x, position.y, position.z, aim.valid ? 1 : 0,
@@ -124,7 +133,10 @@ namespace dayz::script_bridge
                 hud.valid ? hud.width : 1.0f, hud.valid ? hud.height : 1.0f,
                 g_steerValid.load(std::memory_order_relaxed) ? 1 : 0, g_steer.load(std::memory_order_relaxed),
                 g_pedalsValid.load(std::memory_order_relaxed) ? 1 : 0, g_throttle.load(std::memory_order_relaxed),
-                g_brake.load(std::memory_order_relaxed));
+                g_brake.load(std::memory_order_relaxed),
+                buttons.x ? 1 : 0, buttons.y ? 1 : 0, buttons.a ? 1 : 0, buttons.b ? 1 : 0,
+                buttons.stickClickLeft ? 1 : 0, buttons.stickClickRight ? 1 : 0,
+                buttons.grabLeft, buttons.grabRight, buttons.triggerLeft, buttons.triggerRight);
             FILE* file{};
             if (_wfopen_s(&file, g_vrTempPath.c_str(), L"wb") != 0 || !file)
                 return;
@@ -230,6 +242,12 @@ namespace dayz::script_bridge
     {
         g_steer.store(valid ? steer : 0.0f, std::memory_order_relaxed);
         g_steerValid.store(valid, std::memory_order_relaxed);
+    }
+
+    void SetControllerButtons(const Buttons& buttons) noexcept
+    {
+        std::lock_guard<std::mutex> lock(g_buttonsMutex);
+        g_buttons = buttons;
     }
 
     void SetVehiclePedals(float throttle, float brake, bool valid) noexcept

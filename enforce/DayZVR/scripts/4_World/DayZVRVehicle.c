@@ -53,10 +53,19 @@ class DayZVRSteering
 modded class PlayerBase
 {
 	Transport m_DayZVRGetIn;
+	bool m_DayZVRGetOut;
 
 	override void CommandHandler(float pDt, int pCurrentCommandID, bool pCurrentCommandFinished)
 	{
 		super.CommandHandler(pDt, pCurrentCommandID, pCurrentCommandFinished);
+		if (m_DayZVRGetOut)
+		{
+			m_DayZVRGetOut = false;
+			HumanCommandVehicle current = GetCommand_Vehicle();
+			if (current)
+				current.GetOutVehicle();
+			Print("[DayZVR] CommandHandler GetOutVehicle -> " + (current != null).ToString());
+		}
 		if (!m_DayZVRGetIn)
 			return;
 		Transport transport = m_DayZVRGetIn;

@@ -1075,6 +1075,7 @@ void OpenXrHost::ReleaseControllerKeys() noexcept
     dayz::stereo_state::UpdateAimOrientation(0.0f, 0.0f, 0.0f, 1.0f, false);
     dayz::script_bridge::SetVehicleSteer(0.0f, false);
     dayz::script_bridge::SetVehiclePedals(0.0f, 0.0f, false);
+    dayz::script_bridge::SetControllerButtons({});
 }
 
 // Head height below the standing reference selects crouch/prone; DayZ only has
@@ -1435,6 +1436,23 @@ void OpenXrHost::SyncControllerInput(XrTime displayTime, bool guiVisible, bool i
         leftStickClickDown_ = clickDown;
     }
     const bool yDown = yState.isActive && yState.currentState;
+    {
+        // Raw state for Enforce features (vr.txt): buttons as pressed flags, analogue
+        // inputs as values. The right stick click is read here only for the bridge.
+        const XrActionStateBoolean rightClick = booleanState(thumbstickClickAction_, 1);
+        dayz::script_bridge::Buttons buttons;
+        buttons.x = xDown;
+        buttons.y = yDown;
+        buttons.a = aState.isActive && aState.currentState;
+        buttons.b = bState.isActive && bState.currentState;
+        buttons.stickClickLeft = leftStickClickDown_;
+        buttons.stickClickRight = rightClick.isActive && rightClick.currentState;
+        buttons.grabLeft = leftGrabState.isActive ? leftGrabState.currentState : 0.0f;
+        buttons.grabRight = rightGrabState.isActive ? rightGrabState.currentState : 0.0f;
+        buttons.triggerLeft = leftTriggerState.isActive ? leftTriggerState.currentState : 0.0f;
+        buttons.triggerRight = rightTriggerState.isActive ? rightTriggerState.currentState : 0.0f;
+        dayz::script_bridge::SetControllerButtons(buttons);
+    }
     const bool leftGrabDown = leftGrabState.isActive && leftGrabState.currentState > 0.55f;
     const bool rightGrabDown = rightGrabState.isActive && rightGrabState.currentState > 0.55f;
     const bool aDown = aState.isActive && aState.currentState;

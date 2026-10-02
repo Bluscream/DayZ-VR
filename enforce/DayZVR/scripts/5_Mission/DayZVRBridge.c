@@ -149,7 +149,8 @@ class DayZVRBridge
 	// $profile:dayzvr/client_cmd.txt, results appended to client_cmd.log.
 	//   raise <0|1>        hold the weapon raised (OverrideRaise ENABLED/DISABLED)
 	//   enter              get into the driver seat of the nearest vehicle (<= 15 m)
-	//                      through the vanilla ActionGetInTransport
+	//                      (vehicle command queued for the CommandHandler tick)
+	//   exit               leave the current vehicle (same mechanism)
 	//   steer <v>|off      script steering override while driving (V2 experiment)
 	//   print <text>       echo into script.log
 	protected void RunClientCommands()
@@ -204,6 +205,13 @@ class DayZVRBridge
 		}
 		if (verb == "enter")
 			return EnterNearestVehicle(player);
+		if (verb == "exit")
+		{
+			if (!player.GetCommand_Vehicle())
+				return "not in a vehicle";
+			player.m_DayZVRGetOut = true;
+			return "leaving the vehicle on the next CommandHandler tick; run the server 'exit' too";
+		}
 		if (verb == "steer" && words.Count() > 1)
 		{
 			if (words[1] == "off")

@@ -4,10 +4,19 @@
 modded class PlayerBase
 {
 	Transport m_DayZVRServerGetIn;
+	bool m_DayZVRServerGetOut;
 
 	override void CommandHandler(float pDt, int pCurrentCommandID, bool pCurrentCommandFinished)
 	{
 		super.CommandHandler(pDt, pCurrentCommandID, pCurrentCommandFinished);
+		if (m_DayZVRServerGetOut)
+		{
+			m_DayZVRServerGetOut = false;
+			HumanCommandVehicle current = GetCommand_Vehicle();
+			if (current)
+				current.GetOutVehicle();
+			Print("[DayZVR] server CommandHandler GetOutVehicle -> " + (current != null).ToString());
+		}
 		if (!m_DayZVRServerGetIn)
 			return;
 		Transport transport = m_DayZVRServerGetIn;
