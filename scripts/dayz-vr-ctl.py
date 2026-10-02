@@ -14,6 +14,7 @@ host, so this script needs no Wine. Examples:
     dayz-vr-ctl.py haptic
     dayz-vr-ctl.py snapshot turned-left     # save state to build/snapshots/<time>-turned-left.json
     dayz-vr-ctl.py compare                  # yaw/pitch deltas between the last two snapshots
+    dayz-vr-ctl.py calibrate --min-degrees 20   # turn your head: camera/HMD yaw ratio + aim error
 """
 
 from __future__ import annotations
@@ -102,6 +103,52 @@ def compare_snapshots(before: dict[str, Any], after: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def calibrate(client: "DebugClient", seconds: float, min_degrees: float, interval: float) -> int:
+    """Measure how far the game camera follows a head turn.
+
+    Takes a reference state, waits until the HMD yaw has moved by min_degrees (or the
+    time is up), then prints the snapshot comparison plus the aim loop's remaining
+    error. Ratio 1.0 means the closed loop keeps the camera on the head; a ratio well
+    below 1 while the error stays large means the loop is starved (focus lost, frame
+    rate too low for the per-frame turn cap).
+    """
+    tunables = client.request("tunables")
+    controller_aim = float(tunables.get("stereo.controller_aim", 0.0)) >= 0.5
+    if controller_aim:
+        print("note: stereo.controller_aim=1, the camera follows the right controller, not the head;"
+              " the yaw ratio below is not meaningful, judge by the aim error "
+              "(set stereo.controller_aim 0 to calibrate head aim)")
+    before = client.request("get")
+    if not before.get("window_focused", False):
+        print("warning: DayZ is not focused; mouse injection is paused while unfocused")
+    print(f"reference: {summary(before)}")
+    print(f"turn your head by at least {min_degrees:.0f} degrees (waiting up to {seconds:.0f} s)")
+    deadline = time.monotonic() + seconds
+    after = before
+    while time.monotonic() < deadline:
+        time.sleep(interval)
+        after = client.request("get")
+        moved = abs(wrap_degrees(degrees(after["hmd_yaw"]) - degrees(before["hmd_yaw"])))
+        if moved >= min_degrees:
+            break
+    else:
+        moved = abs(wrap_degrees(degrees(after["hmd_yaw"]) - degrees(before["hmd_yaw"])))
+        print(f"timeout: head moved only {moved:.1f} degrees")
+    # Let the loop settle, then take the final sample.
+    time.sleep(max(interval, 0.5))
+    after = client.request("get")
+    print(compare_snapshots(before, after))
+    yaw_error = degrees(after.get("aim_yaw_error", 0.0))
+    pitch_error = degrees(after.get("aim_pitch_error", 0.0))
+    print(f"aim error now: yaw {yaw_error:+.1f} deg, pitch {pitch_error:+.1f} deg; "
+          f"gain yaw {after.get('aim_yaw_gain', 0.0):.0f} pitch {after.get('aim_pitch_gain', 0.0):.0f} counts/rad")
+    save_snapshot(before, "calibrate-before")
+    save_snapshot(after, "calibrate-after")
+    ok = abs(yaw_error) < 3.0 and moved >= min_degrees
+    print("result: " + ("camera follows the head (aim error under 3 deg)" if ok else "camera NOT settled on the head"))
+    return 0 if ok else 1
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
@@ -123,6 +170,10 @@ def main(argv: list[str]) -> int:
     commands.add_parser("ping")
     snapshot = commands.add_parser("snapshot", help="save the state to build/snapshots and compare with the previous one")
     snapshot.add_argument("label", nargs="?", default="snapshot")
+    calibration = commands.add_parser("calibrate", help="measure the camera/HMD yaw ratio over a head turn")
+    calibration.add_argument("--seconds", type=float, default=20.0, help="how long to wait for the head turn")
+    calibration.add_argument("--min-degrees", type=float, default=20.0, help="head yaw change that ends the wait")
+    calibration.add_argument("--interval", type=float, default=0.25)
     compare = commands.add_parser("compare", help="compare two saved snapshots (default: the last two)")
     compare.add_argument("before", nargs="?")
     compare.add_argument("after", nargs="?")
@@ -172,6 +223,8 @@ def main(argv: list[str]) -> int:
             reply = client.request("haptic")
             print(json.dumps(reply))
             return 0 if reply.get("ok") else 1
+        elif args.command == "calibrate":
+            return calibrate(client, args.seconds, args.min_degrees, args.interval)
         elif args.command == "dump-eyes":
             print(json.dumps(client.request("dump_eyes")))
         elif args.command == "ping":

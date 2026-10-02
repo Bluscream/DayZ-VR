@@ -171,8 +171,9 @@ class DayZVRBridge
 		while (FGets(file, line) >= 0)
 		{
 			line = line.Trim();
-			if (line != "")
-				lines.Insert(line);
+			if (line == "" || line.Length() > 200)
+				continue;
+			lines.Insert(line);
 		}
 		CloseFile(file);
 		DeleteFile(DIR + "client_cmd.txt");
@@ -194,6 +195,8 @@ class DayZVRBridge
 		command.Split(" ", words);
 		if (words.Count() == 0)
 			return "empty";
+		if (words.Count() > 8)
+			return "too many arguments (max 8)";
 		PlayerBase player = PlayerBase.Cast(GetGame().GetPlayer());
 		if (!player)
 			return "no player";

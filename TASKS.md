@@ -207,7 +207,12 @@ detour. Update the entry when you touch the track; keep history in git, not here
   held item.
 - State (08:45): `exit` (client + server, `HumanCommandVehicle.GetOutVehicle` from the
   CommandHandler tick) added.
-- Next: argument length limits; `give` into a specific slot. This command channel is for the isolated
+- State (09:25): limits on both channels: lines over 200 characters are dropped
+  (server logs a truncated prefix + "rejected"), more than 8 words is refused, and
+  `give`/`hands`/`spawn` check `ConfigIsExisting("CfgVehicles <class>")` first
+  ("unknown class"). Verified on the sim. Note: `dayz-cmd.sh` waits for the full
+  command echo, so a rejected over-long line times out in the wrapper.
+- Next: `give` into a specific slot. This command channel is for the isolated
   local test rig; public-server administration/authentication is not implemented.
 
 ## M2. Motion-controlled melee
@@ -322,8 +327,15 @@ detour. Update the entry when you touch the track; keep history in git, not here
   ghidra-decompile.sh`, `scripts/dayz-vr-ctl.py` (watch shows aimerr/gain).
   Standard cycle: `build.sh --stop --deploy` → `run-dayz-direct.sh --sim -- -connect=
   127.0.0.1 -port=2302 -mod=@DayZVR` → `dayz-status.sh --wait 300`.
-- Next: a `calibrate` subcommand in dayz-vr-ctl.py that runs the yaw-ratio measurement
-  (currently a scratch script); automated regression run (launch, join, measure, stop).
+- State (09:25): `dayz-vr-ctl.py calibrate [--seconds --min-degrees]` takes a
+  reference, waits for the head to turn, prints the snapshot comparison (camera/HMD
+  yaw ratio), the aim-loop error and gain, saves both snapshots and exits 0 when the
+  camera settled within 3 deg. With `stereo.controller_aim=1` it says so: the camera
+  then follows the right controller and the head ratio is meaningless (sim run: head
+  +8.4 deg, camera -10 deg chasing the static sim controller, error 10.8 deg at 45
+  fps; the loop converged to 0.0 deg once the head stopped).
+- Next: automated regression run (launch, join, measure, stop) built from
+  `run-dayz-direct.sh`, `dayz-status.sh --wait`, `calibrate` and `build.sh --stop`.
 
 
 ## Q1. Native VR quality target and interaction roadmap

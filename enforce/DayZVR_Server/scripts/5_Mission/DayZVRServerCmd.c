@@ -53,8 +53,14 @@ class DayZVRServerCmd
 		while (FGets(file, line) >= 0)
 		{
 			line = line.Trim();
-			if (line != "")
-				lines.Insert(line);
+			if (line == "")
+				continue;
+			if (line.Length() > MAX_LINE)
+			{
+				Log(line.Substring(0, 32) + "... -> rejected: longer than " + MAX_LINE.ToString() + " characters");
+				continue;
+			}
+			lines.Insert(line);
 		}
 		CloseFile(file);
 		DeleteFile(DIR + "cmd.txt");
@@ -81,17 +87,31 @@ class DayZVRServerCmd
 		return PlayerBase.Cast(players[0]);
 	}
 
+	static const int MAX_LINE = 200;
+	static const int MAX_WORDS = 8;
+
+	// Class names reach CreateObjectEx/CreateInHands; an unknown one would only log
+	// an engine error, so check the config first.
+	static bool KnownClass(string name)
+	{
+		return name.Length() <= 64 && GetGame().ConfigIsExisting("CfgVehicles " + name);
+	}
+
 	protected string Execute(string command)
 	{
 		array<string> words = new array<string>();
 		command.Split(" ", words);
 		if (words.Count() == 0)
 			return "empty";
+		if (words.Count() > MAX_WORDS)
+			return "too many arguments (max " + MAX_WORDS.ToString() + ")";
 		string verb = words[0];
 		verb.ToLower();
 		PlayerBase player = FirstPlayer();
 		if (!player)
 			return "no player connected";
+		if ((verb == "give" || verb == "hands" || verb == "spawn") && words.Count() > 1 && !KnownClass(words[1]))
+			return "unknown class " + words[1];
 		if (verb == "give")
 			return Give(player, words);
 		if (verb == "hands")
