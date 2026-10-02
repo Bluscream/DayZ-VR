@@ -5,27 +5,37 @@ Living backlog. Tracks are never "done": each keeps a *State* (what exists today
 detour. Update the entry when you touch the track; keep history in git, not here.
 
 ## R1. True per-frame stereo (double world render)
-- State: `[stereo] stereo_mode=double` exists (experimental, off by default). It hooks the
-  world render (1.29.163709 DayZ+0x8E7650, signature verified), runs it twice per frame
-  with the eye toggled, re-dispatches the projection (DayZ+0x952000) per eye because the
-  view matrices are built there once per frame, restores the consumed descriptor slot,
-  and captures the left image inside DayZ's own render thread (the game submits D3D from
-  a separate thread that lags the world-render calls by more than a pass): the left eye
-  is copied from the backbuffer right before the second backbuffer-sized clear of the
-  frame, the right eye at Present. Verified on the sim: both passes render, no crash,
-  ~same fps as alternate (game is CPU-bound), `dump-eyes` writes both captures.
-  **Finding:** the eye images stay identical even at camera_separation=0.6 and
-  hmd_position_scale=60, so DayZ does not take the render translation from the camera
-  field we write (+0x2C). That means positional head tracking and eye separation have
-  never had any effect; the current stereo is mono with rotation only. Rotation writes
-  (+0x08..+0x20) are honoured. The HUD is drawn into the backbuffer during the pass, so
-  captures include it.
-- Next: Ghidra the projection dispatch (0x952000, caller 0x85FDB1) and the prepare path
-  to find where the view translation really comes from (a separate world-origin /
-  double-precision position, or a copy taken before our write); then write there per
-  eye. Until then keep stereo_mode=alternate as default.
-- Open: HUD duplicated per eye in double mode (fine) but drawn with the mouse-remapped
-  cursor; GPU cost on the real rig.
+- State: `[stereo] stereo_mode=double` (experimental, off by default) hooks the world
+  render (1.29.163709 DayZ+0x8E7650, signature verified), runs it twice per in-world
+  frame with the eye toggled, re-dispatches the projection (DayZ+0x952000) per eye,
+  restores the consumed descriptor slot, and captures the left image inside DayZ's
+  render thread before the N-th backbuffer-sized clear (`double_capture_clear`, live
+  tunable) and the right at Present. `dump-eyes` writes both captures as BMP (render
+  thread). Per-frame D3D mark sequences (`Double mode frame … marks:`) are logged.
+  **Findings (sim, 2026-10-02):**
+  1. Both passes execute (prepare/execute/finalize events), no crash in-world, same fps.
+  2. The second pass renders exactly the same view: not even a 1.2 rad yaw applied to
+     the context camera before the projection re-dispatch (or in prepareView) changes
+     the presented image. DayZ builds its visibility/draw lists in the mode-0 prepare
+     (caller DayZ+0x8E7967, inside the frame function 0x8E77C0) before the projection
+     dispatch; the world render only executes those lists, so a second eye needs the
+     scene preparation re-run (the frame function 0x8E77C0 calls 0x8E7650 at 0x8E7AED
+     and 0x8E7B6B, the per-frame work above it is the real per-eye unit).
+  3. Camera translation written at FrameBase+0x2C is honoured neither for eye offset
+     nor hmd_position_scale (60x showed no shift), rotation (+0x08..+0x20) is. So eye
+     separation and positional tracking have never affected rendering; current output
+     is mono with head rotation.
+  4. DayZ submits D3D on a separate render thread lagging the game thread by more
+     than a pass; captures from the game thread see stale frames, immediate-context
+     use from the debug thread crashed d3d11. The full-size clear count per frame is
+     not stable (2..18), so the clear index is not a reliable pass marker.
+  5. Double mode in menus/loading hung the game once; it is now gated to frames with
+     a fresh projection context and calibrated camera.
+- Next: Ghidra 0x8E77C0 fully: identify the minimal per-eye unit (scene traversal
+  + projection + world render) and which state must be reset between the two; find
+  where the renderer takes its view translation (likely a world-origin/double
+  position elsewhere in the camera or context). Keep `stereo_mode=alternate` default.
+- Open: whether an engine "render twice" path exists (DayZ has PiP/scopes?); GPU cost.
 
 ## R2. Depth-based second eye (fallback rendering mode)
 - State: idea only. The probe already records depth-stencil state per draw (ALPHA dump),

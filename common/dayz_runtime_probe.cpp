@@ -136,9 +136,50 @@ namespace
     // each pass starts by clearing a backbuffer-sized target. The count resets
     // at Present; the left image is captured right before the second clear.
     std::atomic<unsigned> g_frameClearCount{0};
+    // Formats of this frame's full-size clears, logged periodically to find the
+    // pass boundary (index of the capture clear is [stereo] double_capture_clear).
+    unsigned g_frameClearFormats[32]{};
+    float g_doubleCaptureClear{3.0f};
+    // Debug: extra yaw (radians) applied to the right-eye pass camera to prove
+    // that pass 2 renders with its own camera.
+    float g_doubleDebugYaw{0.0f};
+    // Compact per-frame sequence of full-size D3D events for finding the pass
+    // boundary: 'C' clear, 'R' resolve, 'P' copy, 'W' world-render hook call.
+    std::mutex g_frameMarksMutex;
+    std::string g_frameMarks;
+    std::atomic<unsigned> g_worldRenderCallsThisFrame{0};
+
+    bool IsFullSizeResource(ID3D11Resource* resource, D3D11_TEXTURE2D_DESC& description) noexcept
+    {
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+        if (!resource)
+            return false;
+        Microsoft::WRL::ComPtr<ID3D11Resource> holder(resource);
+        holder.As(&texture);
+        if (!texture)
+            return false;
+        texture->GetDesc(&description);
+        unsigned backWidth{};
+        unsigned backHeight{};
+        dayz::stereo_state::GetBackBufferSize(backWidth, backHeight);
+        return backWidth && description.Width == backWidth && description.Height == backHeight;
+    }
+
+    void AddFrameMark(char kind, const D3D11_TEXTURE2D_DESC& description) noexcept
+    {
+        std::lock_guard<std::mutex> lock(g_frameMarksMutex);
+        if (g_frameMarks.size() > 400)
+            return;
+        g_frameMarks += kind;
+        g_frameMarks += std::to_string(static_cast<unsigned>(description.Format));
+        g_frameMarks += 'x';
+        g_frameMarks += std::to_string(description.SampleDesc.Count);
+        g_frameMarks += ' ';
+    }
     // Context of the per-frame projection dispatch (mode 1): DayZ builds the
     // view matrices there once per frame, so each eye pass re-dispatches it.
     OpaqueContext* g_lastProjectionContext{};
+    std::atomic<bool> g_projectionSeenThisFrame{false};
     RsSetViewportsFn g_rsSetViewports{};
     ClearRtvFn g_clearRtv{};
     ClearDsvFn g_clearDsv{};
@@ -1392,6 +1433,56 @@ float4 PSMain(VertexOutput input) : SV_Target
         logging::Info(message.str());
     }
 
+    void RotateCameraBasisAboutUp(OpaqueCamera* camera, float yaw) noexcept
+    {
+        const auto address = reinterpret_cast<std::uintptr_t>(camera);
+        __try
+        {
+            Vec3& right = *reinterpret_cast<Vec3*>(address + 0x08);
+            Vec3& forward = *reinterpret_cast<Vec3*>(address + 0x20);
+            const float c = std::cos(yaw);
+            const float s = std::sin(yaw);
+            const Vec3 newRight{c * right.x + s * forward.x, c * right.y + s * forward.y,
+                c * right.z + s * forward.z};
+            const Vec3 newForward{c * forward.x - s * right.x, c * forward.y - s * right.y,
+                c * forward.z - s * right.z};
+            right = newRight;
+            forward = newForward;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    // Diagnostic for stereo_mode=double: does the translation written by
+    // ApplyAlternateEye survive DayZ's prepareView, and what does the context's
+    // prepared camera copy hold afterwards?
+    void DiagnoseTranslationAfterPrepare(OpaqueContext* context, OpaqueCamera* camera) noexcept
+    {
+        static std::uint64_t calls{};
+        if (++calls % 240 != 0)
+            return;
+        Vec3 after{};
+        Vec3 prepared{};
+        OpaqueCamera* preparedCamera = ReadField<OpaqueCamera*>(context, kPreparedContextCamera);
+        __try
+        {
+            after = *reinterpret_cast<Vec3*>(reinterpret_cast<std::uintptr_t>(camera) + 0x2C);
+            if (preparedCamera)
+                prepared = *reinterpret_cast<Vec3*>(reinterpret_cast<std::uintptr_t>(preparedCamera) + 0x2C);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return;
+        }
+        char message[360]{};
+        sprintf_s(message, "Double diag eye=%u written=(%.4f,%.4f,%.4f) camera_after_prepare=(%.4f,%.4f,%.4f) prepared_copy=%p (%.4f,%.4f,%.4f)",
+            dayz::stereo_state::RenderedEye(), g_lastStereoTranslation.x, g_lastStereoTranslation.y,
+            g_lastStereoTranslation.z, after.x, after.y, after.z, static_cast<void*>(preparedCamera),
+            prepared.x, prepared.y, prepared.z);
+        logging::Info(message);
+    }
+
     void __fastcall HookedPrepareView(OpaqueEngine* engine, OpaqueContext* context,
         std::uint8_t mode, OpaqueCamera* camera)
     {
@@ -1404,7 +1495,9 @@ float4 PSMain(VertexOutput input) : SV_Target
         // before the first pass; the second pass prepares the same camera again,
         // so re-apply for whichever eye is current.
         if (g_stereoDouble && mode == 1 && camera)
+        {
             ApplyAlternateEye(camera);
+        }
         const auto caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
         const std::uintptr_t callerRva = caller >= g_moduleBase &&
             caller < g_moduleBase + kImageSize ? caller - g_moduleBase : 0;
@@ -1426,6 +1519,9 @@ float4 PSMain(VertexOutput input) : SV_Target
         }
         Record(EventKind::Prepare, context, mode, camera);
         g_prepareView(engine, context, mode, camera);
+        // Diagnostic disabled while investigating a menu-phase hang in double mode.
+        if (false && g_stereoDouble && mode == 1 && camera)
+            DiagnoseTranslationAfterPrepare(context, camera);
     }
 
     void* __fastcall HookedExecuteView(OpaqueEngine* engine, OpaqueContext* context,
@@ -1440,6 +1536,8 @@ float4 PSMain(VertexOutput input) : SV_Target
     }
 
     std::uintptr_t __fastcall HookedProjectionDispatch(OpaqueContext* context, std::uint8_t mode);
+
+    void RotateCameraBasisAboutUp(OpaqueCamera* camera, float yaw) noexcept;
 
     bool WorldRenderSignatureMatches() noexcept
     {
@@ -1456,7 +1554,17 @@ float4 PSMain(VertexOutput input) : SV_Target
     void __fastcall HookedWorldRender(OpaqueEngine* engine, void* frame, std::uintptr_t* slots)
     {
         const dayz::stereo_state::EyePositions eyes = dayz::stereo_state::GetEyePositions();
-        if (!g_stereoDouble || !slots || !slots[0] || !eyes.valid || !g_active.load(std::memory_order_relaxed))
+        // Only double-render in-world frames whose projection dispatch ran this
+        // frame; menus and loading screens (no calibrated camera, stale context)
+        // hung the game when rendered twice.
+        const bool projectionFresh = g_projectionSeenThisFrame.exchange(false, std::memory_order_relaxed);
+        g_worldRenderCallsThisFrame.fetch_add(1, std::memory_order_relaxed);
+        {
+            D3D11_TEXTURE2D_DESC none{};
+            AddFrameMark(projectionFresh ? 'W' : 'w', none);
+        }
+        if (!g_stereoDouble || !slots || !slots[0] || !eyes.valid || !projectionFresh ||
+            !g_haveDirectionCalibration || !g_active.load(std::memory_order_relaxed))
         {
             g_worldRender(engine, frame, slots);
             return;
@@ -1474,7 +1582,14 @@ float4 PSMain(VertexOutput input) : SV_Target
         slots[1] = saved1;
         dayz::stereo_state::SetRenderedEye(1);
         if (projection)
+        {
+            // Per-pass camera changes must precede the dispatch that builds the
+            // view matrices; HookedProjectionDispatch applies the eye offset.
+            if (g_doubleDebugYaw != 0.0f)
+                RotateCameraBasisAboutUp(ReadField<OpaqueCamera*>(projection, kContextCamera),
+                    g_doubleDebugYaw);
             HookedProjectionDispatch(projection, 1);
+        }
         g_worldRender(engine, frame, slots);
         const std::uint64_t frames = g_doubleRenderFrames.fetch_add(1) + 1;
         if (frames == 1 || frames % 600 == 0)
@@ -1500,7 +1615,10 @@ float4 PSMain(VertexOutput input) : SV_Target
         EnsureCameraRefreshHook(context);
         ApplyAlternateEye(ReadField<OpaqueCamera*>(context, kContextCamera));
         if (mode == 1)
+        {
             g_lastProjectionContext = context;
+            g_projectionSeenThisFrame.store(true, std::memory_order_relaxed);
+        }
         Record(EventKind::Projection, context, mode);
         OpaqueCamera* previousProjectionCamera = g_projectionContextCamera;
         g_projectionContextCamera = ReadField<OpaqueCamera*>(context, kContextCamera);
@@ -2114,7 +2232,11 @@ float4 PSMain(VertexOutput input) : SV_Target
                 description.Height == backHeight)
             {
                 const unsigned count = g_frameClearCount.fetch_add(1, std::memory_order_acq_rel) + 1;
-                if (count == 2)
+                if (count <= 32)
+                    g_frameClearFormats[count - 1] = static_cast<unsigned>(description.Format) |
+                        (description.SampleDesc.Count << 16);
+                AddFrameMark('C', description);
+                if (count == static_cast<unsigned>(g_doubleCaptureClear))
                     dayz::stereo_state::CaptureEyeIfBackBuffer(0, resource.Get());
             }
         }
@@ -2140,6 +2262,12 @@ float4 PSMain(VertexOutput input) : SV_Target
             event->object0 = target;
             event->object1 = source;
         }
+        if (g_stereoDouble)
+        {
+            D3D11_TEXTURE2D_DESC description{};
+            if (IsFullSizeResource(source, description))
+                AddFrameMark('P', description);
+        }
         g_copyResource(self, target, source);
     }
 
@@ -2152,6 +2280,12 @@ float4 PSMain(VertexOutput input) : SV_Target
             event->object0 = target;
             event->object1 = source;
             event->format = static_cast<std::uint32_t>(format);
+        }
+        if (g_stereoDouble)
+        {
+            D3D11_TEXTURE2D_DESC description{};
+            if (IsFullSizeResource(source, description))
+                AddFrameMark('R', description);
         }
         g_resolve(self, target, targetSubresource, source, sourceSubresource, format);
     }
@@ -2991,6 +3125,7 @@ namespace dayz::runtime_probe
         dayz::hotkeys::Initialize(ConfigurationFile().c_str());
         g_alternateEyeEnabled = ReadBoolean(L"stereo", L"alternate_eye", false);
         g_stereoDouble = _wcsicmp(ReadString(L"stereo", L"stereo_mode", L"alternate").c_str(), L"double") == 0;
+        g_doubleCaptureClear = (std::clamp)(ReadFloat(L"stereo", L"double_capture_clear", 3.0f), 1.0f, 64.0f);
         g_hmdRotationEnabled = ReadBoolean(L"stereo", L"hmd_rotation", true);
         g_hmdNativeAimEnabled = ReadBoolean(L"stereo", L"hmd_native_aim", true);
         g_hmdMouseYawScale = ReadFloat(L"stereo", L"hmd_mouse_yaw_scale", -600.0f);
@@ -3256,7 +3391,23 @@ namespace dayz::runtime_probe
         if (g_alternateEyeEnabled && !g_stereoDouble)
             dayz::stereo_state::AdvanceEye();
         if (g_stereoDouble)
-            g_frameClearCount.store(0, std::memory_order_release);
+        {
+            const unsigned clears = g_frameClearCount.exchange(0, std::memory_order_acq_rel);
+            const unsigned worldCalls = g_worldRenderCallsThisFrame.exchange(0, std::memory_order_acq_rel);
+            std::string marks;
+            {
+                std::lock_guard<std::mutex> lock(g_frameMarksMutex);
+                marks.swap(g_frameMarks);
+            }
+            if (frame % 300 == 0 || (frame % 20 == 0 && frame < 2400))
+            {
+                std::ostringstream message;
+                message << "Double mode frame " << frame << ": world_render_calls=" << worldCalls
+                        << " full-size clears=" << clears << " capture_clear=" << g_doubleCaptureClear
+                        << " marks: " << marks;
+                logging::Info(message.str());
+            }
+        }
         if (frame > 12 && frame % 120 != 0)
             return;
 
@@ -3406,6 +3557,8 @@ namespace dayz::runtime_probe
             {"stereo.lock_pitch", TunableKind::Bool, &g_lockHmdPitch, 0.0f, 1.0f},
             {"stereo.hmd_aim_closed_loop", TunableKind::Bool, &g_hmdAimClosedLoop, 0.0f, 1.0f},
             {"stereo.controller_aim", TunableKind::Bool, &g_controllerAim, 0.0f, 1.0f},
+            {"stereo.double_capture_clear", TunableKind::Float, &g_doubleCaptureClear, 1.0f, 64.0f},
+            {"stereo.double_debug_yaw", TunableKind::Float, &g_doubleDebugYaw, -3.2f, 3.2f},
             {"stereo.hmd_aim_loop_damping", TunableKind::Float, &g_aimLoopDamping, 0.05f, 1.0f},
             {"stereo.hmd_aim_loop_max_counts", TunableKind::Float, &g_aimLoopMaxCounts, 1.0f, 5000.0f},
             {"stereo.override_hud_scale", TunableKind::Bool, &g_overrideHudScale, 0.0f, 1.0f},
