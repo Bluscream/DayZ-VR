@@ -38,7 +38,9 @@ say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 use_sim=0
-game_args=(-nobe)
+# -nobe: no BattlEye client; -filePatching: loose script files from the game directory are
+# loaded over the PBOs (the local server allows it); -scriptDebug: script debugging allowed.
+game_args=(-nobe -filePatching -scriptDebug=true)
 while (( $# )); do
   case "$1" in
     --sim) use_sim=1 ;;
@@ -104,8 +106,14 @@ env_list=(
   "PROTON_LOG_DIR=$log_dir"
 )
 if (( use_sim )); then
-  [[ -S "${XDG_RUNTIME_DIR:?}/monado_comp_ipc" ]] ||
-    die "the simulated runtime is not running; start it with scripts/xr-sim.sh start"
+  # The simulator is a dependency of a --sim launch, not a precondition the caller has
+  # to remember: start it when its socket is missing (xr-sim.sh start is idempotent).
+  if [[ ! -S "${XDG_RUNTIME_DIR:?}/monado_comp_ipc" ]]; then
+    say "the simulated runtime is not running; starting it (scripts/xr-sim.sh start)"
+    "$script_dir/xr-sim.sh" start
+    [[ -S "${XDG_RUNTIME_DIR:?}/monado_comp_ipc" ]] ||
+      die "the simulated runtime did not come up; see scripts/xr-sim.sh status"
+  fi
   mapfile -t sim_env < <("$script_dir/xr-sim.sh" env)
   env_list+=("${sim_env[@]}")
   say "using the headless Monado runtime"

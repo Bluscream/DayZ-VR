@@ -10,7 +10,7 @@
 #   scripts/regression-run.sh --keep         leave DayZ running at the end
 #   scripts/regression-run.sh --no-sim       real headset: launch without the Monado sim runtime
 #
-# Needs the sim (scripts/xr-sim.sh start) and a set-up local server
+# Starts the sim if needed (run-dayz-direct.sh --sim) and needs a set-up local server
 # (scripts/local-server.sh setup). Exit status 0 only when every step passed.
 # The game is stopped through scripts/build.sh --stop in its own step; this script's
 # own command line never contains the game executable's name, so that stop cannot
