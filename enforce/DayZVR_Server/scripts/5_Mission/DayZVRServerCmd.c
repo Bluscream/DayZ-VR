@@ -18,6 +18,7 @@
 //   enter                      seat the player as driver of the nearest vehicle (<= 15 m)
 //   exit                       leave the current vehicle (run the client exit too)
 //   heal                       full health/blood/energy/water, no bleeding
+//   loadout                    full test kit (NVG helmet, clothing, M4A1, FNX45, melee, lights, meds)
 //   time <hour> [minute]       set the server clock
 //   weather clear|rain|fog     set weather instantly
 //   kill                       kill the player (respawn tests)
@@ -152,6 +153,8 @@ class DayZVRServerCmd
 		}
 		if (verb == "heal")
 			return Heal(player);
+		if (verb == "loadout")
+			return DayZVRServerLoadout.Equip(player);
 		if (verb == "time")
 			return SetTime(words);
 		if (verb == "weather")

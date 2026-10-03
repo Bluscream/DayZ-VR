@@ -6,8 +6,9 @@
 #   scripts/dayz-cmd.sh spawn OffroadHatchback     drivable vehicle 4 m ahead
 #   scripts/dayz-cmd.sh tp nwaf                    teleport (presets or "tp x z" / "tp x y z")
 #   scripts/dayz-cmd.sh heal | kill | time 12 | weather clear
-#   scripts/dayz-cmd.sh --client raise 1          client-side hooks (@DayZVR mod): raise 0|1,
-#                                                 print <text>
+#   scripts/dayz-cmd.sh loadout                    full test kit (NVG helmet, M4A1, FNX45, melee, lights, meds)
+#   scripts/dayz-cmd.sh --client raise 1          client-side hooks (@DayZVR mod, parked: see
+#                                                 parked/README.md): raise 0|1, print <text>
 #
 # The command is appended to build/local-server/serverprofile/dayzvr/cmd.txt (the
 # server's $profile:dayzvr/, polled every 0.5 s); the mod deletes the file and appends
