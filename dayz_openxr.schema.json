@@ -181,6 +181,13 @@
           "default": "true",
           "live": true
         },
+        "vr_enabled": {
+          "title": "VR enabled",
+          "description": "Live master switch (hotkey dayzvr.toggle_vr, default F12). Off: flat game image in the headset, HMD rotation and eye alternation pause, the OpenXR session continues.",
+          "type": "bool",
+          "default": "true",
+          "live": true
+        },
         "stereo_mode": {
           "title": "Stereo mode",
           "description": "alternate: one eye per game frame. double (experimental): call DayZ's world render twice per frame; currently both passes draw the same view and the frame rate halves. Falls back to alternate on an unknown build.",
@@ -407,7 +414,7 @@
         },
         "gui_cursor": {
           "title": "Virtual GUI cursor",
-          "description": "Lock the system cursor to the window centre while a menu is open and draw the mod's own cursor into the VR-visible interface layer.",
+          "description": "Lock the system cursor to the window centre while a menu is open and draw the plugin's own cursor into the VR-visible interface layer.",
           "type": "bool",
           "default": "true",
           "restart": true

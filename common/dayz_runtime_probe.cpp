@@ -236,10 +236,16 @@ namespace
     std::atomic_uint32_t g_drawStateEventCount{};
     std::atomic_bool g_captureApi{};
     bool g_alternateEyeEnabled{};
+    bool g_hmdRotationEnabled{};
+    // [stereo] vr_enabled (live, hotkey toggle_vr): off leaves the game camera and the
+    // backbuffer untouched (flat image in the headset) while the OpenXR session keeps
+    // running. Gates HMD rotation and eye alternation per frame.
+    bool g_vrEnabled{true};
+    bool HmdRotationActive() noexcept { return g_hmdRotationEnabled && g_vrEnabled; }
+    bool AlternateEyeActive() noexcept { return g_alternateEyeEnabled && g_vrEnabled; }
     // [stereo] stereo_mode=double: render the world twice per frame, once per eye.
     bool g_stereoDouble{};
     std::atomic<std::uint64_t> g_doubleRenderFrames{0};
-    bool g_hmdRotationEnabled{};
     // [stereo] prepare_translation: write the eye/head translation before the scene
     // preparation (mode 0 and 1), not only in the projection dispatch.
     bool g_stereoPrepareTranslation{true};
@@ -335,6 +341,11 @@ namespace
     std::atomic_uint64_t g_guiLayerCapturedPresent{~std::uint64_t{}};
     bool g_guiMouseRemapEnabled{true};
     bool g_guiCursorEnabled{true};
+    // VR off (stereo.vr_enabled=false): the menus stay on the game window with the
+    // stock cursor, nothing is routed to the GUI quad.
+    bool GuiQuadActive() noexcept { return g_guiQuadEnabled && g_vrEnabled; }
+    bool GuiMouseRemapActive() noexcept { return g_guiMouseRemapEnabled && g_vrEnabled; }
+    bool GuiCursorActive() noexcept { return g_guiCursorEnabled && g_vrEnabled; }
     HWND g_gameWindow{};
     WNDPROC g_originalWindowProcedure{};
     using GetCursorPosFn = BOOL(WINAPI*)(LPPOINT);
@@ -856,7 +867,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     {
         const dayz::stereo_state::EyePositions eyePositions =
             dayz::stereo_state::GetEyePositions();
-        if ((!g_alternateEyeEnabled && !g_stereoDouble) || !eyePositions.valid)
+        if ((!AlternateEyeActive() && !g_stereoDouble) || !eyePositions.valid)
             return;
         if (!camera)
             return;
@@ -1047,7 +1058,7 @@ float4 PSMain(VertexOutput input) : SV_Target
 
     void ApplyHmdRotationToCamera(OpaqueCamera* camera) noexcept
     {
-        if (!g_hmdRotationEnabled)
+        if (!HmdRotationActive())
             return;
         const dayz::stereo_state::HmdOrientation orientation = FrameHmdOrientation();
         if (!orientation.valid)
@@ -1205,7 +1216,7 @@ float4 PSMain(VertexOutput input) : SV_Target
 
     void ApplyInventoryPreviewRotation(OpaqueCamera* camera) noexcept
     {
-        if (!g_hmdRotationEnabled || !camera)
+        if (!HmdRotationActive() || !camera)
             return;
         const dayz::stereo_state::HmdOrientation orientation =
             dayz::stereo_state::GetHmdOrientation();
@@ -1309,7 +1320,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         if (earlyPrimaryCamera && g_frameRecords)
         {
             // One game frame begins here: freeze the HMD sample and pick the eye.
-            dayz::stereo_state::BeginGameFrame(g_alternateEyeEnabled && !g_stereoDouble);
+            dayz::stereo_state::BeginGameFrame(AlternateEyeActive() && !g_stereoDouble);
         }
         if (primaryProjectionCamera || earlyPrimaryCamera)
         {
@@ -1485,7 +1496,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         // Projection identifies the primary FrameBase, but DayZ prepares that
         // same object again before copying it into the render context. Reapply
         // HMD here in case game-side camera state was refreshed in between.
-        if (g_hmdRotationEnabled && camera && camera == g_lastHmdCamera)
+        if (HmdRotationActive() && camera && camera == g_lastHmdCamera)
             ApplyHmdRotationToCamera(camera);
         // The mode-0 preparation traverses the scene with the camera position it finds
         // here, before the projection dispatch refreshes the FrameBase; a translation
@@ -2095,7 +2106,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         original.depth.Attach(depth);
         const bool guiCandidate = indexed ? caller == g_moduleBase + g_buildProfile->drawIndexedReturnRva :
             (caller == g_moduleBase + g_buildProfile->drawReturnRva || caller == g_moduleBase + g_buildProfile->drawSecondReturnRva);
-        const bool guiCapture = g_guiQuadEnabled && guiCandidate && IsGuiCursorModeActive();
+        const bool guiCapture = GuiQuadActive() && guiCandidate && IsGuiCursorModeActive();
         if (indexed ? !IsInventoryLayerDraw(context, caller, target, guiCapture) :
                 !IsHudLayerDraw(context, caller, target, guiCapture))
             return false;
@@ -2396,7 +2407,7 @@ float4 PSMain(VertexOutput input) : SV_Target
 
     bool RawGuiCursorModeActive() noexcept
     {
-        if (!g_guiMouseRemapEnabled || !g_gameWindow ||
+        if (!GuiMouseRemapActive() || !g_gameWindow ||
             RealForegroundWindowImpl() != g_gameWindow)
             return false;
         CURSORINFO info{};
@@ -2487,7 +2498,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     std::int64_t __fastcall HookedGuiInputMessage(void* inputManager, std::int64_t argument2,
         unsigned int message, std::int64_t wparam, std::uintptr_t messageData)
     {
-        if (g_guiMouseRemapEnabled && message == WM_MOUSEMOVE)
+        if (GuiMouseRemapActive() && message == WM_MOUSEMOVE)
         {
             POINT point{static_cast<SHORT>(LOWORD(messageData)),
                 static_cast<SHORT>(HIWORD(messageData))};
@@ -2546,7 +2557,7 @@ float4 PSMain(VertexOutput input) : SV_Target
                 break;
             }
         }
-        if (g_guiMouseRemapEnabled && HasMouseCoordinates(message))
+        if (GuiMouseRemapActive() && HasMouseCoordinates(message))
         {
             POINT point{static_cast<SHORT>(LOWORD(lparam)),
                 static_cast<SHORT>(HIWORD(lparam))};
@@ -2561,7 +2572,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     BOOL WINAPI HookedGetCursorPos(LPPOINT point)
     {
         const BOOL result = g_getCursorPos(point);
-        if (!result || !point || !g_guiMouseRemapEnabled || !g_gameWindow)
+        if (!result || !point || !GuiMouseRemapActive() || !g_gameWindow)
             return result;
         POINT virtualPoint{};
         if (GetVirtualCursorPoint(virtualPoint) && ClientToScreen(g_gameWindow, &virtualPoint))
@@ -2590,7 +2601,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     BOOL WINAPI HookedGetCursorInfo(PCURSORINFO info)
     {
         const BOOL result = g_getCursorInfo(info);
-        if (!result || !info || !g_guiMouseRemapEnabled || !g_gameWindow ||
+        if (!result || !info || !GuiMouseRemapActive() || !g_gameWindow ||
             !g_guiVirtualCursorActive.load() || RealForegroundWindowImpl() != g_gameWindow ||
             !(info->flags & CURSOR_SHOWING))
             return result;
@@ -2744,7 +2755,7 @@ float4 PSMain(VertexOutput input) : SV_Target
         const float nativeHeight = static_cast<float>(g_guiNativeHeight.load());
         constants.cursorPixelUv[0] = nativeWidth > 0.0f ? 1.0f / nativeWidth : 1.0f;
         constants.cursorPixelUv[1] = nativeHeight > 0.0f ? 1.0f / nativeHeight : 1.0f;
-        if (!g_guiCursorEnabled || !g_gameWindow || nativeWidth <= 0.0f ||
+        if (!GuiCursorActive() || !g_gameWindow || nativeWidth <= 0.0f ||
             nativeHeight <= 0.0f || RealForegroundWindowImpl() != g_gameWindow)
             return constants;
         CURSORINFO info{};
@@ -3217,7 +3228,7 @@ namespace dayz::runtime_probe
                 << " hud_composite_layer=" << g_hudCompositeWidth << 'x'
                 << g_hudCompositeHeight << " hud_eye_offsets=" << g_hudLeftOffsetX << ','
                 << g_hudRightOffsetX << " hud_content_scale=" << g_hudContentScale
-                << " gui_mouse_remap=" << g_guiMouseRemapEnabled
+                << " gui_mouse_remap=" << GuiMouseRemapActive()
                 << " gui_cursor=" << g_guiCursorEnabled
                 << " inventory_hmd_look=" << g_inventoryHmdLookEnabled
                 << " inventory_blur=" << g_inventoryBlurEnabled
@@ -3385,7 +3396,7 @@ namespace dayz::runtime_probe
 
     bool IsGuiQuadVisible() noexcept
     {
-        return g_active.load(std::memory_order_relaxed) && g_guiQuadEnabled &&
+        return g_active.load(std::memory_order_relaxed) && GuiQuadActive() &&
             IsGuiCursorModeActive() && g_guiLayerView &&
             g_guiLayerCapturedPresent.load(std::memory_order_relaxed) ==
                 g_presentCount.load(std::memory_order_relaxed);
@@ -3461,6 +3472,7 @@ namespace dayz::runtime_probe
             {"stereo.game_fov", TunableKind::Float, &g_gameFov, 0.0f, 2.8f},
             {"stereo.hud_scale", TunableKind::Float, &g_hudScale, 0.05f, 1.0f},
             {"stereo.alternate_eye", TunableKind::Bool, &g_alternateEyeEnabled, 0.0f, 1.0f},
+            {"stereo.vr_enabled", TunableKind::Bool, &g_vrEnabled, 0.0f, 1.0f},
             {"stereo.prepare_translation", TunableKind::Bool, &g_stereoPrepareTranslation, 0.0f, 1.0f},
             {"stereo.frame_records", TunableKind::Bool, &g_frameRecords, 0.0f, 1.0f},
             {"stereo.frame_lag", TunableKind::Float, &g_frameLag, 0.0f, 8.0f},
