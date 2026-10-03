@@ -50,3 +50,6 @@ __pycache__/
 
 # Rust build output of the config editor (tools/config-editor)
 tools/config-editor/target/
+
+# Local game-folder archives
+*.tar.gz
