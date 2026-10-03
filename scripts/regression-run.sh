@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One-shot regression run on the headless sim rig: build + test gate, stop DayZ, deploy,
 # restart the local server with the fresh server mod, launch the client on the Monado
-# sim, wait until it is in-world, exercise the bridge (server command, client command,
-# haptic test pulse, aim calibration sample) and stop the game again. Every step's full
+# sim, wait until it is in-world, run a server command and a settle watch, and stop
+# the game again (client command, haptic and calibration steps are parked). Every step's full
 # output goes to build/logs/regression-<stamp>/; the summary says PASS or FAIL per step.
 #
 #   scripts/regression-run.sh                full run (about 6 minutes)
@@ -83,7 +83,7 @@ launch_client() {
     sim_flag=(--sim)
   fi
   (
-    setsid "$script_dir/run-dayz-direct.sh" "${sim_flag[@]}" -- -connect=127.0.0.1 -port=2302 "-mod=@DayZVR" \
+    setsid "$script_dir/run-dayz-direct.sh" "${sim_flag[@]}" -- -connect=127.0.0.1 -port=2302 \
       >"$run_dir/launch.log" 2>&1 &
   )
   sleep 1
@@ -101,15 +101,12 @@ step server-ready wait_server_ready
 step launch launch_client
 step in-world "$script_dir/dayz-status.sh" --wait "$in_world_seconds"
 step server-cmd "$script_dir/dayz-cmd.sh" info
-step client-cmd "$script_dir/dayz-cmd.sh" --client print regression
-step haptic "$script_dir/dayz-vr-ctl.py" haptic
-# Forty seconds of one-line samples: the aim loop is still converging right after the
-# spawn (the first in-world frames run at half the usual rate), and the samples are the
-# evidence when the calibration below disagrees with an earlier run.
+# client-cmd, haptic and calibrate steps are parked with the bridge, controllers and
+# the aim loop (parked/README.md); the rendering-only build has nothing to answer them.
+# Forty seconds of one-line samples: the first in-world frames run at half the usual
+# rate, and the samples are the evidence when a later eye-shift measurement disagrees
+# with an earlier run.
 step settle "$script_dir/dayz-vr-ctl.py" watch --interval 2 --count 20
-# The calibration sample judges the aim loop: with controller aim on it passes when the
-# camera sits on the right controller within 3 deg (static sim controllers).
-step calibrate "$script_dir/dayz-vr-ctl.py" calibrate --seconds 15 --min-degrees 10
 if [[ $keep_running -eq 0 ]]; then
   step stop-game "$script_dir/build.sh" --stop
 fi

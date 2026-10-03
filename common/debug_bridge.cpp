@@ -2,7 +2,6 @@
 
 #include "dayz_runtime_probe.hpp"
 #include "dayz_vr_debug_api.h"
-#include "dayz_input_hooks.hpp"
 #include "logging.hpp"
 #include "openxr_host.hpp"
 #include "stereo_state.hpp"
@@ -54,17 +53,6 @@ namespace
         orientation[3] = pose.orientation.w;
     }
 
-    void FillHand(const XrSpaceLocation& grip, const XrSpaceLocation& aim,
-        DayzVrDebugHand& out) noexcept
-    {
-        constexpr XrSpaceLocationFlags kValid =
-            XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        out.grip_valid = (grip.locationFlags & kValid) == kValid;
-        out.aim_valid = (aim.locationFlags & kValid) == kValid;
-        CopyPose(grip.pose, out.grip_position, out.grip_orientation);
-        CopyPose(aim.pose, out.aim_position, out.aim_orientation);
-    }
-
     void GetState(void*, DayzVrDebugState* out)
     {
         if (!out)
@@ -81,21 +69,9 @@ namespace
         strncpy_s(state.build_profile, probe.buildProfile, _TRUNCATE);
         state.present_count = probe.presentCount;
         state.stereo_apply_count = probe.stereoApplyCount;
-        state.pending_mouse_x = probe.pendingMouseX;
-        state.pending_mouse_y = probe.pendingMouseY;
-        state.aim_yaw_error = probe.aimYawError;
-        state.aim_pitch_error = probe.aimPitchError;
-        state.aim_yaw_gain = probe.aimYawGain;
-        state.aim_pitch_gain = probe.aimPitchGain;
+        // Aim-loop, hand and direct-input fields stay zero: those features are parked
+        // (parked/README.md); the struct layout and API version are unchanged.
         state.rendered_eye = dayz::stereo_state::RenderedEye();
-
-        const auto input = dayz::input_hooks::GetStats();
-        state.direct_input_active = dayz::input_hooks::Active() ? 1u : 0u;
-        state.direct_input_resolved = input.resolved;
-        state.direct_input_unresolved = input.unresolved;
-        state.direct_input_frames = input.frames;
-        state.direct_input_overrides = input.overrides;
-        state.direct_input_frame_seconds = input.lastFrameSeconds;
 
         const auto host = OpenXrHost::Instance().GetDebugSnapshot();
         state.openxr_initialized = host.initialized;
@@ -109,8 +85,6 @@ namespace
         state.hmd_pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, 2.0f * (q.w * q.x - q.z * q.y))));
         state.hmd_yaw = std::atan2(2.0f * (q.w * q.y + q.x * q.z), 1.0f - 2.0f * (q.x * q.x + q.y * q.y));
         state.hmd_roll = std::atan2(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.x * q.x + q.z * q.z));
-        for (std::size_t hand = 0; hand < 2; ++hand)
-            FillHand(host.grip[hand], host.aim[hand], state.hands[hand]);
 
         const auto eyes = dayz::stereo_state::GetEyePositions();
         state.eyes_valid = eyes.valid;
@@ -194,34 +168,10 @@ namespace
             logging::Info(written ? "Debug plugin dumped eye captures" : "Debug plugin eye dump failed");
             return written ? 0 : -2;
         }
-        if (name && _stricmp(name, "haptic") == 0)
-            return OpenXrHost::Instance().TestHaptic() ? 0 : -2;
         if (name && _stricmp(name, "recenter") == 0)
         {
             dayz::runtime_probe::RecenterHmd();
             logging::Info("Debug plugin requested HMD recenter");
-            return 0;
-        }
-        // "action <UAName> <value>": force an engine input action (test aid for the
-        // direct input hooks; value > 0.5 also holds the digital state, 0 releases).
-        if (name && _strnicmp(name, "action ", 7) == 0)
-        {
-            if (!dayz::input_hooks::Active())
-                return -2;
-            const std::string rest(name + 7);
-            const auto space = rest.find(' ');
-            if (space == std::string::npos || space == 0)
-                return -1;
-            const std::string action = rest.substr(0, space);
-            char* end{};
-            const double value = std::strtod(rest.c_str() + space + 1, &end);
-            if (!end || *end != '\0')
-                return -1;
-            if (value == 0.0)
-                dayz::input_hooks::ClearAction(action);
-            else
-                dayz::input_hooks::SetAction(action, static_cast<float>(value), value > 0.5);
-            logging::Info("Debug plugin forced action " + action + " = " + rest.substr(space + 1));
             return 0;
         }
         return -1;

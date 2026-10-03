@@ -76,7 +76,8 @@ class SchemaTests(unittest.TestCase):
     def test_ranges_and_live_flags_match_native_tables(self) -> None:
         schema = schema_keys()
         native = native_ranges()
-        self.assertGreater(len(native), 40, "tunable table regexes found too few rows")
+        # The host tunable table is parked (parked/README.md); only the probe rows remain.
+        self.assertGreater(len(native), 15, "tunable table regexes found too few rows")
         for name, (low, high, boolean) in native.items():
             if name in LIVE_ONLY:
                 continue

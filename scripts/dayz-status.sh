@@ -98,7 +98,6 @@ say "deployed artifacts (game dir vs build/)"
 for name in dxgi.dll dayz_openxr_debug.dll; do
   row "$name" "$(file_info "$dayz_dir/$name")  $(same_file "$build_dir/$name" "$dayz_dir/$name")"
 done
-row "@DayZVR pbo" "$(file_info "$dayz_dir/@DayZVR/addons/DayZVR.pbo")  $(same_file "$build_dir/@DayZVR/addons/DayZVR.pbo" "$dayz_dir/@DayZVR/addons/DayZVR.pbo")"
 row "ini" "$(file_info "$dayz_dir/dayz_openxr.ini")"
 if [[ -f "$dayz_dir/dayz_openxr.ini" ]]; then
   row "ini highlights" "$(grep -E '^(stereo_mode|alternate_eye|hmd_native_aim|hmd_aim_closed_loop|controller_aim|lock_yaw|lock_pitch|keep_focus|enabled|vignette)=' "$dayz_dir/dayz_openxr.ini" | tr '\n' ' ')"

@@ -95,13 +95,6 @@ step_test() {
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -fsanitize=address,undefined -fno-omit-frame-pointer -g'
   run_in_container "g++ $gpp_flags tests/config_number_test.cpp -o build/config_number_test && ./build/config_number_test" 2>&1 | tee "$log_dir/test-config-number.log"
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
-  run_in_container "g++ $gpp_flags tests/hmd_aim_loop_test.cpp common/hmd_aim_loop.cpp -o build/hmd_aim_loop_test && ./build/hmd_aim_loop_test" 2>&1 | tee "$log_dir/test-aim-loop.log"
-  run_in_container "g++ $gpp_flags tests/ammo_display_test.cpp common/ammo_display.cpp -o build/ammo_display_test && ./build/ammo_display_test" 2>&1 | tee "$log_dir/test-ammo-display.log"
-  run_in_container "g++ $gpp_flags tests/melee_swing_test.cpp common/melee_swing.cpp -o build/melee_swing_test && ./build/melee_swing_test" 2>&1 | tee "$log_dir/test-melee-swing.log"
-  run_in_container "g++ $gpp_flags tests/vehicle_steering_test.cpp common/vehicle_steering.cpp -o build/vehicle_steering_test && ./build/vehicle_steering_test" 2>&1 | tee "$log_dir/test-vehicle-steering.log"
-  run_in_container "g++ $gpp_flags tests/physical_stance_test.cpp common/physical_stance.cpp -o build/physical_stance_test && ./build/physical_stance_test" 2>&1 | tee "$log_dir/test-physical-stance.log"
-  run_in_container "g++ $gpp_flags tests/shot_detector_test.cpp common/shot_detector.cpp -o build/shot_detector_test && ./build/shot_detector_test" 2>&1 | tee "$log_dir/test-shot-detector.log"
-  run_in_container "g++ $gpp_flags tests/input_actions_test.cpp common/input_actions.cpp -o build/input_actions_test && ./build/input_actions_test" 2>&1 | tee "$log_dir/test-input-actions.log"
   run_in_container "g++ $gpp_flags -pthread tests/projection_replay_test.cpp -o build/projection_replay_test && ./build/projection_replay_test" 2>&1 | tee "$log_dir/test-projection-replay.log"
   run_in_container "g++ $gpp_flags -pthread tests/stereo_state_test.cpp common/stereo_state.cpp -o build/stereo_state_test && ./build/stereo_state_test" 2>&1 | tee "$log_dir/test-stereo-state.log"
   run_in_container "g++ $gpp_flags tests/present_frame_test.cpp -o build/present_frame_test && ./build/present_frame_test" 2>&1 | tee "$log_dir/test-present-frame.log"
@@ -110,8 +103,9 @@ step_test() {
   run_in_container "g++ $gpp_flags tests/gui_capture_sizing_test.cpp -o build/gui_capture_sizing_test && ./build/gui_capture_sizing_test" 2>&1 | tee "$log_dir/test-gui-capture-sizing.log"
   run_in_container "g++ $gpp_flags -pthread tests/render_trace_test.cpp -o build/render_trace_test && ./build/render_trace_test" 2>&1 | tee "$log_dir/test-render-trace.log"
   "$script_dir/test-debug-plugin.sh" 2>&1 | tee "$log_dir/test-debug-plugin.log"
-  python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR" "$build_dir/@DayZVR/addons/DayZVR.pbo" --prefix DayZVR 2>&1 | tee "$log_dir/build-pbo.log"
-  python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR_Server" "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee -a "$log_dir/build-pbo.log"
+  # The @DayZVR client bridge mod is parked (parked/enforce/DayZVR); only the server
+  # test-command mod is built.
+  python3 "$script_dir/build-pbo.py" "$project_dir/enforce/DayZVR_Server" "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" --prefix DayZVR_Server 2>&1 | tee "$log_dir/build-pbo.log"
   if [[ -f "$build_dir/dayz-image.bin" ]]; then
     run_in_container "g++ $gpp_flags -Icommon tests/build_checks.cpp -o build/build_checks && ./build/build_checks build/dayz-image.bin" 2>&1 | tee "$log_dir/test-build-checks.log"
   else
@@ -175,11 +169,6 @@ step_deploy() {
     say "installed the reference dayz_openxr.ini (none was present)"
   else
     say "kept the existing dayz_openxr.ini"
-  fi
-  if [[ -f "$build_dir/@DayZVR/addons/DayZVR.pbo" ]]; then
-    mkdir -p "$dayz_dir/@DayZVR/addons"
-    cp -f "$build_dir/@DayZVR/addons/DayZVR.pbo" "$dayz_dir/@DayZVR/addons/DayZVR.pbo"
-    say "deployed the @DayZVR script bridge mod (launch with -mod=@DayZVR)"
   fi
   if [[ -f "$build_dir/@DayZVR_Server/addons/DayZVR_Server.pbo" && -d "$build_dir/local-server" ]]; then
     mkdir -p "$build_dir/local-server/@DayZVR_Server/addons"

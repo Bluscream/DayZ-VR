@@ -6,6 +6,12 @@ detour. Update the entry when you touch the track; keep history in git, not here
 The flat views are `FEATURES.md` (what works, with verification state) and `TODO.md` (what
 does not yet); update them when a track's State changes.
 
+> **Checkpoint 2026-10-03: rendering-only build.** Every non-rendering feature (controls,
+> input hooks, aim loop, bridge + `@DayZVR` client mod, ammo quad, haptics, melee, stance,
+> steering, comfort, hotkeys) is parked under `parked/` (see its README for the restore
+> steps). Tracks about those features are frozen at their last State; R1/R5 continue. The
+> regression run has no client-cmd, haptic or calibrate steps while parked.
+
 ## R1. True per-frame stereo (double world render)
 - State: `[stereo] stereo_mode=double` (experimental, off by default) hooks the world
   render (1.29.163709 DayZ+0x8E7650, signature verified), runs it twice per in-world
@@ -501,10 +507,10 @@ Findings, each with its fix state:
   (`scratchpad/lagtest.sh 0 1 2 3`): lags 0/2 give the swapped sign, 1/3 the right one, so the
   depth is 1 (default now 1; the log's "head yaw moved since render" stays under 0.2 deg).
   Verified after the rebuild: lag 1 at 1 m gives +80/+148 px (middle/bottom bands), at the
-  real 0.064 m +16/+24 px, far band 0; the deployed ini runs the rendering-only preset
-  (`scripts/ini-preset.sh rendering-only`; the regression haptic step fails by design
-  while controls are off). Next: headset check of smoothness with this build, then head
-  position scale and the pitch/roll render-only path; later native double render (R1).
+  real 0.064 m +16/+24 px, far band 0. Since 2026-10-03 the build itself is rendering-only
+  (non-rendering code parked under `parked/`, the preset script with it), so no ini preset
+  is needed. Next: headset check of smoothness with this build, then head position scale;
+  pitch/roll/yaw are all render-only now; later native double render (R1).
 - Mouse look: `[input] mouse_look=false` makes the aim axis report only the VR rate
   (both pair orders handled); deployed ini runs with `hmd_native_aim=false`,
   `hmd_aim_closed_loop=false`, so only the headset path rotates the view (user request).

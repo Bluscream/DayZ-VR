@@ -25,14 +25,9 @@ target_include_directories(minhook PUBLIC third_party/minhook/include)
 add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/openxr_host.cpp common/debug_frame_source.cpp common/dayz_frame_source.cpp
   common/dayz_runtime_probe.cpp common/debug_bridge.cpp common/crash_report.cpp
-  common/dayz_patches.cpp common/dayz_hotkeys.cpp common/hmd_aim_loop.cpp common/comfort.cpp common/script_bridge.cpp
-  common/ammo_display.cpp
-  common/melee_swing.cpp
-  common/vehicle_steering.cpp
-  common/physical_stance.cpp
-  common/shot_detector.cpp
-  common/input_actions.cpp
-  common/dayz_input_hooks.cpp)
+  common/dayz_patches.cpp)
+# Non-rendering modules (controls, bridge, haptics, ...) are parked under parked/ and
+# deliberately not listed here; see parked/README.md.
 target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)

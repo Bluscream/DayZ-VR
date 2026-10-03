@@ -12,6 +12,13 @@ local server, `tests` = covered by the native/Python test gate, `untested` = com
 deploys but no live evidence. Most new work is `sim`-verified and still waits for a
 headset session (see TODO.md).
 
+> **Rendering-only build since 2026-10-03.** Sections 4 (controller input), 5 (script
+> bridge and the `@DayZVR` client mod), the ammo quad, haptics, melee, stance, steering,
+> comfort vignette, hotkeys and the HMD-to-game aim path are **parked**: moved to
+> [`parked/`](parked/README.md), not compiled, not deployed and removed from the ini and
+> schema. The entries below describe them as they were; the HMD rotation is applied
+> render-side on all axes meanwhile, so the body and weapon no longer follow the head.
+
 Config keys refer to `dayz_openxr.ini`. "Live tunable" means the value can be changed
 while the game runs through the debug plugin (`scripts/dayz-vr-ctl.py set <section.key>`)
 or a hotkey toggle.

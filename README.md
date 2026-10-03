@@ -2,6 +2,11 @@
 
 An experimental, unofficial VR prototype for the Windows x64 version of DayZ. It presents DayZ through an OpenXR runtime and modifies selected rendering, camera, GUI, and mouse-input behavior inside the running game. The proxy currently recognizes the matching retail `DayZ_x64.exe` and diagnostic `DayZDiag_x64.exe` builds.
 
+> **Current state (2026-10-03): rendering-only build.** Controller input, the Enforce
+> client mod and bridge, HUD quads, haptics and the head-to-aim coupling are parked under
+> [`parked/`](parked/README.md) while stereo rendering is brought to a state-of-the-art
+> level. The controller mapping and bridge sections below describe the parked behaviour.
+
 [FEATURES.md](FEATURES.md) lists every feature with its origin and verification state; [TODO.md](TODO.md) lists what is unfinished; [TASKS.md](TASKS.md) is the per-track backlog with history.
 
 ## Showcase video
