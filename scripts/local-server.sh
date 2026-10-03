@@ -5,7 +5,9 @@
 # private copy of Steam's "DayZ Server" (app 223350) install, with BattlEye patched
 # out by pterodactyl-eggs/dayz-standalone/patch_be.pl so a -nobe client can join.
 #
-#   scripts/local-server.sh setup    copy the Steam install, patch BattlEye, write serverDZ.cfg
+#   scripts/local-server.sh setup    copy the Steam install, patch BattlEye, write a maximally
+#                                    lenient serverDZ.cfg (no signatures, no same-build, no
+#                                    mod equality, no shot validation, no bans), empty ban list
 #   scripts/local-server.sh start    start the server container (port 2302, query 2305)
 #   scripts/local-server.sh stop     stop it
 #   scripts/local-server.sh status   container state and the last log lines
@@ -53,18 +55,33 @@ cmd_setup() {
   cp -f "$server_dir/steamclient.so" "$server_dir/.steam/sdk64/steamclient.so"
   say "patching BattlEye out of the server binary"
   perl "$eggs_dir/patch_be.pl" "$server_dir/DayZServer"
+  # The Steam install ships a populated ban.txt; the local server bans nobody.
+  printf '// Local test server: no bans (scripts/local-server.sh setup rewrites this file).\n' > "$server_dir/ban.txt"
+  : > "$server_dir/whitelist.txt"
   cat > "$server_dir/serverDZ.cfg" <<CFG
 hostname = "DayZ-VR local test server";
 password = "";
 passwordAdmin = "";
 enableWhitelist = 0;
 maxPlayers = 4;
+// As lenient as the engine allows: this server exists only for the local VR test
+// client, which runs with a dxgi proxy, patched inputs and (optionally) loose files.
 verifySignatures = 0;
 forceSameBuild = 0;
+equalModRequired = 0;
+shotValidation = 0;
+disableBanlist = true;
+disablePrioritylist = true;
+disableMultiAccountMitigation = true;
+pingWarning = 1000;
+pingCritical = 2000;
+MaxPing = 5000;
+disablePersonalLight = 0;
 disableVoN = 1;
 disable3rdPerson = 0;
 disableCrosshair = 0;
-serverTime = "SystemTime";
+// Fixed noon start (daylight for every rendering session); real-time progression.
+serverTime = "2026/6/21/12/00";
 serverTimeAcceleration = 1;
 serverNightTimeAcceleration = 1;
 serverTimePersistent = 0;
@@ -76,6 +93,8 @@ storageAutoFix = 1;
 lootHistory = 1;
 storeHouseStateDisabled = false;
 allowFilePatching = 1;
+// Mission cfggameplay.json (written by setup: easy stamina/shock/drowning, no base damage).
+enableCfgGameplayFile = 1;
 steamQueryPort = $query_port;
 enableDebugMonitor = 1;
 logAverageFps = 60;
@@ -91,9 +110,68 @@ class Missions
     };
 };
 CFG
+  write_easy_mission
   say "pulling $image if needed"
   podman image exists "$image" || podman pull "$image"
   say "setup complete"
+}
+
+# Lowest difficulty the mission's config files allow (rsync restores the vanilla files
+# on every setup, so this runs after it): cfggameplay.json (stamina never limits, shock
+# refills fast, drowning slow, no base/container damage, no respawn dialog, mild
+# temperatures, 3D map and player position on the map) and globals.xml (no infected, no
+# food decay, pristine loot, short login/logout timers). Hunger, thirst and blood-loss
+# rates are script constants (PlayerConstants), not config, and are left alone; the
+# "loadout" and "heal" commands of @DayZVR_Server cover the rest.
+write_easy_mission() {
+  local mission="$server_dir/mpmissions/dayzOffline.chernarusplus"
+  if [[ ! -f "$mission/cfggameplay.json" || ! -f "$mission/db/globals.xml" ]]; then
+    say "warning: mission files missing in $mission; easy-mode mission edit skipped"
+    return 0
+  fi
+  say "writing the easy-mode mission files"
+  python3 - "$mission" <<'PY'
+import json, re, sys
+from pathlib import Path
+mission = Path(sys.argv[1])
+cfg_path = mission / "cfggameplay.json"
+cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+cfg["GeneralData"].update({"disableBaseDamage": True, "disableContainerDamage": True,
+                           "disableRespawnDialog": True, "disableRespawnInUnconsciousness": True})
+player = cfg["PlayerData"]
+player["disablePersonalLight"] = False
+player["StaminaData"].update({"sprintStaminaModifierErc": 0.05, "sprintStaminaModifierCro": 0.05,
+    "staminaWeightLimitThreshold": 60000.0, "staminaMax": 100.0, "staminaKgToStaminaPercentPenalty": 0.0,
+    "staminaMinCap": 100.0, "sprintSwimmingStaminaModifier": 0.05, "sprintLadderStaminaModifier": 0.05,
+    "meleeStaminaModifier": 0.05, "obstacleTraversalStaminaModifier": 0.05, "holdBreathStaminaModifier": 0.05})
+player["ShockHandlingData"].update({"shockRefillSpeedConscious": 50.0, "shockRefillSpeedUnconscious": 50.0,
+    "allowRefillSpeedModifier": True})
+player["MovementData"]["allowStaminaAffectInertia"] = False
+player["DrowningData"].update({"staminaDepletionSpeed": 0.1, "healthDepletionSpeed": 0.1, "shockDepletionSpeed": 0.1})
+cfg["WorldsData"]["environmentMinTemps"] = [18] * 12
+cfg["WorldsData"]["environmentMaxTemps"] = [24] * 12
+cfg["WorldsData"]["wetnessWeightModifiers"] = [1.0] * 5
+for group in cfg["BaseBuildingData"]["HologramData"], cfg["BaseBuildingData"]["ConstructionData"]:
+    for key, value in group.items():
+        if isinstance(value, bool):
+            group[key] = True
+cfg["UIData"]["use3DMap"] = True
+cfg["MapData"].update({"ignoreMapOwnership": True, "ignoreNavItemsOwnership": True,
+                       "displayPlayerPosition": True, "displayNavInfo": True})
+cfg_path.write_text(json.dumps(cfg, indent="\t") + "\n", encoding="utf-8")
+
+globals_path = mission / "db" / "globals.xml"
+text = globals_path.read_text(encoding="utf-8")
+for name, value in {"ZombieMaxCount": "0", "AnimalMaxCount": "200", "FoodDecay": "0", "LootDamageMin": "0.0",
+                    "LootDamageMax": "0.0", "TimeLogin": "5", "TimeLogout": "5", "TimePenalty": "0",
+                    "TimeHopping": "0", "IdleModeStartup": "0"}.items():
+    text, count = re.subn(rf'(<var name="{name}" type="\d+" value=")[^"]*(")', rf"\g<1>{value}\g<2>", text)
+    if count != 1:
+        raise SystemExit(f"globals.xml: {name} not found")
+globals_path.write_text(text, encoding="utf-8")
+
+print("cfggameplay.json and db/globals.xml written")
+PY
 }
 
 cmd_start() {
@@ -116,7 +194,7 @@ cmd_start() {
     -p "127.0.0.1:$port-$((port + 2)):$port-$((port + 2))/udp" \
     -p "127.0.0.1:$query_port:$query_port/udp" \
     -v "$server_dir:/home/container:Z" -w /home/container --entrypoint /bin/bash "$image" \
-    -c "./DayZServer -config=serverDZ.cfg -port=$port -profiles=serverprofile -BEpath=battleye -dologs -adminlog -limitFPS=60 $server_mods" \
+    -c "./DayZServer -config=serverDZ.cfg -port=$port -profiles=serverprofile -BEpath=battleye -filePatching -scriptDebug=true -dologs -adminlog -limitFPS=60 $server_mods" \
     >/dev/null
   cmd_status
 }
