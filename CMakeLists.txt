@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 project(DayZVR LANGUAGES C CXX)
 # GetProcAddress returns FARPROC; these Windows API boundaries must cast it to
 # the actual exported signature. Clang's type-mismatch warning cannot model it.
-set_source_files_properties(dxgi/dxgi_proxy.cpp common/openxr_host.cpp tests/dxgi_smoke.cpp
-  PROPERTIES COMPILE_OPTIONS "/clang:-Wno-cast-function-type-mismatch")
+set_source_files_properties(loader/dxgi_proxy.cpp loader/plugin_loader.cpp common/openxr_host.cpp
+  tests/dxgi_smoke.cpp PROPERTIES COMPILE_OPTIONS "/clang:-Wno-cast-function-type-mismatch")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
@@ -28,16 +28,26 @@ add_library(vr_common STATIC common/logging.cpp common/stereo_state.cpp
   common/dayz_patches.cpp)
 # Non-rendering modules (controls, bridge, haptics, ...) are parked under parked/ and
 # deliberately not listed here; see parked/README.md.
-target_include_directories(vr_common PUBLIC common "${OPENXR_SDK}/include")
+target_include_directories(vr_common PUBLIC common include "${OPENXR_SDK}/include")
 target_compile_definitions(vr_common PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX
   XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D11)
 target_link_libraries(vr_common PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/openxr_loader.lib"
   d3d11 d3dcompiler dxguid user32 minhook)
 add_dependencies(vr_common openxr_import)
-add_library(dxgi SHARED dxgi/dllmain.cpp dxgi/dxgi_proxy.cpp dxgi/swapchain_hooks.cpp
-  dxgi/dxgi.def)
-target_link_libraries(dxgi PRIVATE vr_common minhook)
-set_target_properties(dxgi PROPERTIES PREFIX "")
+# dxgi.dll is the generic plugin loader: system-DXGI forwarding, swap-chain detours, plugin
+# discovery (plugins/*.dll), settings and hotkey registries. It knows nothing about VR.
+add_library(dayz_pluginloader SHARED loader/dllmain.cpp loader/dxgi_proxy.cpp
+  loader/swapchain_hooks.cpp loader/plugin_loader.cpp loader/settings.cpp loader/hotkeys.cpp
+  common/logging.cpp loader/dxgi.def)
+target_include_directories(dayz_pluginloader PRIVATE loader common include "${OPENXR_SDK}/include")
+target_compile_definitions(dayz_pluginloader PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(dayz_pluginloader PRIVATE minhook user32)
+set_target_properties(dayz_pluginloader PROPERTIES PREFIX "" OUTPUT_NAME dxgi)
+# The VR plugin: everything in vr_common behind the loader's C API, deployed as plugins/dayzvr.dll.
+add_library(dayzvr SHARED vrplugin/dayzvr_plugin.cpp)
+target_link_libraries(dayzvr PRIVATE vr_common minhook dxgi)
+set_target_properties(dayzvr PROPERTIES PREFIX ""
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/plugins")
 add_executable(xr_probe xr_probe/main.cpp)
 target_link_libraries(xr_probe PRIVATE vr_common dxgi.lib)
 add_executable(dxgi_smoke WIN32 tests/dxgi_smoke.cpp)
@@ -51,9 +61,10 @@ set_target_properties(dayz_openxr_debug PROPERTIES PREFIX "")
 add_executable(debug_plugin_lifecycle_test tests/debug_plugin_lifecycle_test.cpp)
 target_compile_definitions(debug_plugin_lifecycle_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(debug_plugin_lifecycle_test PRIVATE dayz_openxr_debug ws2_32)
-foreach(target vr_common dxgi xr_probe dxgi_smoke dayz_openxr_debug debug_plugin_lifecycle_test)
+foreach(target vr_common dayz_pluginloader dayzvr xr_probe dxgi_smoke dayz_openxr_debug debug_plugin_lifecycle_test)
   target_compile_options(${target} PRIVATE /W4 /WX /EHsc /Zi)
   target_link_options(${target} PRIVATE /DEBUG)
 endforeach()
 configure_file("${OPENXR_LOADER}" openxr_loader.dll COPYONLY)
 configure_file(dayz_openxr.ini dayz_openxr.ini COPYONLY)
+configure_file(dayz_pluginloader.ini dayz_pluginloader.ini COPYONLY)

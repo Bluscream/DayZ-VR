@@ -1,6 +1,6 @@
 # DayZ-VR feature inventory
 
-Everything the mod does today, including the functionality inherited from the original
+Everything the plugin does today, including the functionality inherited from the original
 July 2026 prototype (commits `7866d17`..`e3cbdf2`) and the work added since 2026-10-01 on
 `fix/dayz-1.29.163709-proton`. Unfinished or planned work is in [TODO.md](TODO.md); the
 living per-track backlog with history is [TASKS.md](TASKS.md).
@@ -27,7 +27,10 @@ or a hotkey toggle.
 
 | Feature | Details | Config | Origin | Verified |
 | --- | --- | --- | --- | --- |
-| Local DXGI proxy | `dxgi.dll` beside `DayZ_x64.exe` forwards the factory exports to the system library and hooks swap-chain creation, `Present`, `Present1` and `ResizeBuffers`. | `[hooks]` | inherited | headset, sim |
+| Plugin loader (`dxgi.dll`) | Generic: forwards the factory exports to the system library, hooks swap-chain creation, `Present`, `Present1` and `ResizeBuffers`, loads `plugins/*.dll` through the C API (`include/dayz_plugin_api.h`: describe/start/stop, swap-chain and present events, backbuffer override, settings and hotkey registries). No mod started = plain passthrough. Log `dayz_pluginloader.log`. | `dayz_pluginloader.ini [loader]` | new (2026-10-03) | sim |
+| VR plugin (`plugins/dayzvr.dll`) | Everything VR behind the loader API; config stays `dayz_openxr.ini`, `[hooks] enabled=false` keeps it inactive. | `[hooks]` | inherited, moved | sim |
+| Hotkeys | Plugins register actions with default keys; bindings `dayz_pluginloader.ini [hotkeys] <plugin>.<action>` (`f12`, `ctrl+shift+r`, `numpad5`, `caret`, `0x7b`, `none`). VR plugin: `toggle_vr` F12 (live `stereo.vr_enabled`: flat image, HMD ignored, session continues), `recenter` F11. | `[hotkeys]` | new | sim, tests (grammar) |
+| Settings API | Plugins declare typed keys (bool/int/float/enum/string, range, live/restart) stored in their own ini; the host validates, writes and notifies. Registration of the VR keys is pending (TASKS L1). | – | new | tests (validation) |
 | OpenXR session via D3D11 | Rendered frames are submitted to the active OpenXR runtime (SteamVR, WiVRn, Monado) as a two-view projection layer with the headset's native FOV. | `[openxr] enabled` (LOCAL reference space, no validation layer; the former `reference_space`/`debug_layer` keys were never read and are gone) | inherited | headset, sim |
 | Build-identity check | Hooks install only when the executable's PE timestamp and `SizeOfImage` match a known profile; a mismatched DayZ build leaves rendering untouched. Profiles: `DayZ_x64.exe` 1.29.163709 and `DayZDiag_x64.exe` (signature-relocated, experimental). | `[stereo] runtime_probe` | inherited (profile `new`) | sim, tests |
 | Forwarding-only mode | `[openxr] enabled=false` loads the proxy without changing rendering, for a safe first test. | `[openxr] enabled` | inherited | headset |
@@ -44,7 +47,7 @@ or a hotkey toggle.
 
 | Feature | Details | Config | Origin | Verified |
 | --- | --- | --- | --- | --- |
-| Alternate-eye presentation | One eye per game frame, each eye at half the frame rate. This is the default and the only mode that shows a usable image. **The image is mono with head rotation**: DayZ ignores the camera translation the mod writes, so eye separation and positional tracking never reach the renderer. | `[stereo] stereo_mode=alternate`, `alternate_eye`, `camera_separation`, `image_shift` | inherited | headset, sim |
+| Alternate-eye presentation | One eye per game frame, each eye at half the frame rate. This is the default and the only mode that shows a usable image. **The image is mono with head rotation**: DayZ ignores the camera translation the plugin writes, so eye separation and positional tracking never reach the renderer. | `[stereo] stereo_mode=alternate`, `alternate_eye`, `camera_separation`, `image_shift` | inherited | headset, sim |
 | Double world render (experimental) | Calls DayZ's world render twice per frame with the eye toggled and re-dispatches the projection per eye. Executes without crashing but both passes draw the same view (see TODO R1). Off by default. | `[stereo] stereo_mode=double`, `double_capture_clear` | new | sim (negative result) |
 | HMD rotation on the camera | Head yaw/pitch/roll applied to DayZ's camera during view preparation. | `[stereo] hmd_rotation` | inherited | headset, sim |
 | Native HMD aim | Head yaw/pitch are routed through DayZ's mouse camera so the aim ray, shots, body and weapon match the rendered direction; roll stays render-only. | `[stereo] hmd_native_aim`, `hmd_mouse_yaw_scale`, `hmd_mouse_pitch_scale` | inherited | headset, sim |
@@ -89,7 +92,7 @@ or a hotkey toggle.
 | Motion melee (default off) | Right-controller swings tap the attack button (light) or hold it (heavy) while fists or a melee weapon are in hands; one event per swing with cooldown. | `[melee] motion_swing`, `light_speed`, `heavy_speed`, `cooldown_seconds`, `heavy_hold_seconds` | new | sim (negative path only), tests |
 | Physical crouch/prone (default off) | Head drop below the standing height taps crouch/prone toggles until the bridge reports the matching stance; hysteresis; off in GUI, inventory, vehicle. Standing height recaptured on recenter. | `[stance] physical`, `crouch_drop`, `prone_drop`, `hysteresis` | new | headset (crouch), sim, tests |
 | Two-hand steering wheel | The line between the grips is the rim; its tilt becomes `Car.SetSteering` through the bridge while the local player drives; deadzone, max angle, invert, optional both-grips requirement. Keyboard steering keeps working when hands are not both tracked. | `[vehicle] steering`, `wheel_max_degrees`, `deadzone`, `invert`, `require_grip` | new | headset (steers, janky), sim, tests |
-| Trigger pedals | While in a vehicle the triggers publish throttle/brake instead of mouse buttons; the mod applies them only while pressed so W/S keep working. | (part of `[vehicle] steering`) | new | headset (in 1st gear; in N it rolls backwards), sim |
+| Trigger pedals | While in a vehicle the triggers publish throttle/brake instead of mouse buttons; the plugin applies them only while pressed so W/S keep working. | (part of `[vehicle] steering`) | new | headset (in 1st gear; in N it rolls backwards), sim |
 | In-car buttons | A = engine start/stop, left grip + A = headlights, right stick click = horn, through the vanilla action manager (server executes). B stays handbrake. Native A/hotbar chords are suppressed while driving. | – | new | sim (engine, lights readback) |
 | Raw controller state for mods | vr.txt carries `btn_a/b/x/y`, stick clicks, grips, triggers so Enforce features can react to buttons. | `[bridge]` | new | sim |
 

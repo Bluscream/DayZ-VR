@@ -40,20 +40,23 @@ unproven, **headset** = implemented and sim-verified, waits for a real headset,
 | Steering wheel range and pedals | headset | V2 | `wheel_max_degrees`/`deadzone` untuned; whether `SetThrottle` beats the engine input like steering did is unproven (sim triggers idle). |
 | Horn audible, headlights visible on a real client | headset | V2 | Server executes the actions (readback verified); client-side effect unseen. |
 | Seated recenter / view locked to vehicle yaw | planned | V2 | `lock_view` exists; a seated height reference does not. |
-| Quickbar cycle resync with physical keyboard | partial | – | Inherited: pressing a number key does not update the mod's cycle position. |
+| Quickbar cycle resync with physical keyboard | partial | – | Inherited: pressing a number key does not update the plugin's cycle position. |
 | Hands visibly on the wheel | idea | V2 | Depends on the hand-model track. |
 
 ## 3. UI
 
 | Item | Status | Track | Notes |
 | --- | --- | --- | --- |
-| In-game settings menu for every mod setting | planned | U2 | Decision made: reuse DayZ's own UI from the Enforce mod (options built from `.layout` widgets, values through the bridge). Not started. |
+| In-game settings menu for every plugin setting | planned | U2 | Decision made: reuse DayZ's own UI from the Enforce mod (options built from `.layout` widgets, values through the bridge). Not started. |
 | Every ini key as a runtime tunable with a "needs restart" flag | partial | U2 | 23 host keys and the render-path keys are live; keys consumed at hook installation (`runtime_probe`, HUD safe area, resolution override) still need a restart, and the render-path table is separate from the host table. |
 | Persisting runtime changes back to the ini | planned | U2 | Values set live are lost on exit. The desktop config editor (`tools/config-editor`) covers edit + apply live + save outside the game; in-game persistence is still open. |
 | Wrist-anchored dashboard | planned | V2, S2 | Data path and screen-space line exist; a native quad or left-grip projection is next. |
 | Ammo quad placement with real controllers | headset | U1 | Sim grips sit at the frame edge, so the quad clips there. |
 | Ammo quad red state | partial | U1 | Red is only reachable with ammo=0 and no chamber; unverified. |
 | Immersive HUD elements beyond ammo and dashboard | idea | U1 | Health, stamina, bleeding are already in game.txt. |
+| Mod Settings tab and keybind rows inside DayZ's own Options/Controls menus | planned | L1 | Needs native widget/input-action injection (reverse engineering) or a host-drawn overlay styled after the game menu; overlay first. |
+| Hotkey press-to-bind editing in the overlay, persisted to `dayz_pluginloader.ini` | planned | L1 | Bindings are ini-only today. |
+| In-game drop-down console (default `^`) with mod-registered commands and variables | planned | L1 | Settings become console variables, hotkey actions become commands; shares the command table with the debug plugin protocol. |
 
 ## 4. Scripting and bridge
 
@@ -84,6 +87,9 @@ unproven, **headset** = implemented and sim-verified, waits for a real headset,
 | CTest registration, enforced size limits, stricter Python typing | open | audit | Gate runs tests by script, not through CTest. |
 | Window-drag crash root cause | partial | C1 | Guard patch deployed; the crash never reproduced headless. |
 | Offset update workflow for the next DayZ build | planned | – | Profiles and signatures are per build; a new patch breaks the hooks until offsets are refreshed. |
+| Every `dayz_openxr.schema.json` key registered through the loader's settings API (one table for ini, debug protocol, editor, UI) | planned | L1, U2 | Phase 1 of the loader ships the API; the VR plugin still reads its ini directly. |
+| Debug plugin bridge hosted by the loader instead of the VR plugin | planned | L1 | So every plugin's settings reach `dayz-vr-ctl.py`. |
+| Toggle VR v2: end/re-create the OpenXR session at runtime | planned | L1 | v1 only stops HMD camera rotation and eye alternation. |
 
 ## 6. Test rig
 
@@ -111,7 +117,7 @@ under WiVRn, the per-frame `xr_ms` wait breakdown on WiVRn.
 
 ## 8. VR feature checklist (what native VR games and good VR mods have)
 
-The common feature set of native VR games and of the three tiers of VR mod (injector:
+The common feature set of native VR games and of the three tiers of VR plugin (injector:
 stereo + head tracking + gamepad; conversion: motion-controller aim, HUD placement, camera
 fixes, comfort; full conversion: tracked hands, physical weapons, manual interactions,
 VR UI), checked against this mod. **have** = in FEATURES.md, **partial** = exists with a
@@ -195,7 +201,7 @@ which rows are realistic; "idea" rows above are the ones we have already decided
 | Haptics on hits, damage, vehicle collisions, interactions | – | M1/M2 |
 | Impact-dependent vibration | – | – |
 | Spatial audio, directional footsteps | engine | DayZ's own; headset audio through the runtime |
-| In-game settings menu for the mod | – | U2 (config editor exists outside the game) |
+| In-game settings menu for the plugin | – | U2 (config editor exists outside the game) |
 | Subtitle / text size options | – | – |
 | Accessibility: one-handed mode, button remap, height offset | – | – |
 

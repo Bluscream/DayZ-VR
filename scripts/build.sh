@@ -85,7 +85,8 @@ step_build() {
   [[ -f "$openxr_loader" ]] || die "OPENXR_LOADER not found: $openxr_loader"
   mkdir -p "$log_dir"
   run_in_container "export XWIN_ROOT=\"$xwin_root\" OPENXR_SDK=\"$openxr_sdk\" OPENXR_LOADER=\"$openxr_loader\" BUILD_JOBS=\"${BUILD_JOBS:-4}\" && nice -n 10 ./scripts/build-linux.sh" 2>&1 | tee "$log_dir/build.log"
-  [[ -f "$build_dir/dxgi.dll" && -f "$build_dir/dayz_openxr_debug.dll" ]] || die "build did not produce both DLLs"
+  [[ -f "$build_dir/dxgi.dll" && -f "$build_dir/plugins/dayzvr.dll" && -f "$build_dir/dayz_openxr_debug.dll" ]] \
+    || die "build did not produce dxgi.dll (loader), plugins/dayzvr.dll and dayz_openxr_debug.dll"
 }
 
 step_test() {
@@ -94,6 +95,7 @@ step_test() {
   python3 -B -m unittest discover -s "$project_dir/tests" -p 'test_*.py' -v 2>&1 | tee "$log_dir/test-tools.log"
   local gpp_flags='-std=c++20 -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -fsanitize=address,undefined -fno-omit-frame-pointer -g'
   run_in_container "g++ $gpp_flags tests/config_number_test.cpp -o build/config_number_test && ./build/config_number_test" 2>&1 | tee "$log_dir/test-config-number.log"
+  run_in_container "g++ $gpp_flags -Iinclude tests/key_names_test.cpp -o build/key_names_test && ./build/key_names_test" 2>&1 | tee "$log_dir/test-key-names.log"
   run_in_container "g++ $gpp_flags tests/debug_protocol_test.cpp -o build/debug_protocol_test && ./build/debug_protocol_test" 2>&1 | tee "$log_dir/test-protocol.log"
   run_in_container "g++ $gpp_flags -pthread tests/projection_replay_test.cpp -o build/projection_replay_test && ./build/projection_replay_test" 2>&1 | tee "$log_dir/test-projection-replay.log"
   run_in_container "g++ $gpp_flags -pthread tests/stereo_state_test.cpp common/stereo_state.cpp -o build/stereo_state_test && ./build/stereo_state_test" 2>&1 | tee "$log_dir/test-stereo-state.log"
@@ -154,21 +156,26 @@ step_deploy() {
   stamp="$(date +%Y%m%d-%H%M%S)"
   backup="$build_dir/deploy-backup/$stamp"
   if (( dry_run )); then
-    say "dry-run: would back up to $backup and copy dxgi.dll, dayz_openxr_debug.dll, openxr_loader.dll"
+    say "dry-run: would back up to $backup and copy dxgi.dll, plugins/dayzvr.dll, dayz_openxr_debug.dll, openxr_loader.dll"
     return
   fi
   mkdir -p "$backup"
   local name
-  # Everything the proxy needs to start: the dxgi proxy, the debug plugin and the
-  # OpenXR loader the proxy imports (the game folder has no copy of its own).
+  # Everything needed to start: the plugin loader (dxgi.dll), the VR plugin, the debug
+  # plugin and the OpenXR loader the VR plugin imports (the game folder has no copy).
   local source
-  for name in dxgi.dll dayz_openxr_debug.dll openxr_loader.dll; do
+  mkdir -p "$dayz_dir/plugins" "$backup/plugins"
+  for name in dxgi.dll plugins/dayzvr.dll dayz_openxr_debug.dll openxr_loader.dll; do
     source="$build_dir/$name"
     [[ "$name" == openxr_loader.dll ]] && source="$openxr_loader"
     [[ -f "$dayz_dir/$name" ]] && cp -p "$dayz_dir/$name" "$backup/$name"
     cp -f "$source" "$dayz_dir/$name"
     cmp "$source" "$dayz_dir/$name"
   done
+  if [[ ! -f "$dayz_dir/dayz_pluginloader.ini" ]]; then
+    cp "$project_dir/dayz_pluginloader.ini" "$dayz_dir/dayz_pluginloader.ini"
+    say "installed the reference dayz_pluginloader.ini (none was present)"
+  fi
   if [[ ! -f "$dayz_dir/dayz_openxr.ini" ]]; then
     cp "$project_dir/dayz_openxr.ini" "$dayz_dir/dayz_openxr.ini"
     say "installed the reference dayz_openxr.ini (none was present)"

@@ -95,10 +95,12 @@ fi
 row "game dir" "$dayz_dir"
 
 say "deployed artifacts (game dir vs build/)"
-for name in dxgi.dll dayz_openxr_debug.dll; do
+for name in dxgi.dll plugins/dayzvr.dll dayz_openxr_debug.dll; do
   row "$name" "$(file_info "$dayz_dir/$name")  $(same_file "$build_dir/$name" "$dayz_dir/$name")"
 done
+row "openxr_loader.dll" "$(file_info "$dayz_dir/openxr_loader.dll")"
 row "ini" "$(file_info "$dayz_dir/dayz_openxr.ini")"
+row "loader ini" "$(file_info "$dayz_dir/dayz_pluginloader.ini")"
 if [[ -f "$dayz_dir/dayz_openxr.ini" ]]; then
   row "ini highlights" "$(grep -E '^(stereo_mode|alternate_eye|hmd_native_aim|hmd_aim_closed_loop|controller_aim|lock_yaw|lock_pitch|keep_focus|enabled|vignette)=' "$dayz_dir/dayz_openxr.ini" | tr '\n' ' ')"
 fi

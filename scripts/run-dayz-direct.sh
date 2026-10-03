@@ -134,6 +134,13 @@ if ! diff -q <(grep -vE '^[[:space:]]*(#|;|$)' "$project_dir/dayz_openxr.ini") \
   diff <(grep -vE '^[[:space:]]*(#|;|$)' "$project_dir/dayz_openxr.ini") \
        <(grep -vE '^[[:space:]]*(#|;|$)' "$ini") | sed 's/^/    /' || true
 fi
+loader_ini="$dayz_dir/dayz_pluginloader.ini"
+if [[ -f "$loader_ini" ]]; then
+  say "active $loader_ini (comments stripped)"
+  grep -vE '^[[:space:]]*(#|;|$)' "$loader_ini" | sed 's/^/    /'
+else
+  say "no dayz_pluginloader.ini in the game folder (loader defaults: enabled, plugins/)"
+fi
 say "game arguments: ${game_args[*]}"
 # ----------------------------------------------------------------------------------
 

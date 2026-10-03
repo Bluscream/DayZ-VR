@@ -1,10 +1,10 @@
+// DXGI factory, swap-chain, Present and ResizeBuffers detours. Generic: knows nothing
+// about VR; every event is handed to the plugins through loader::On*.
 #include "swapchain_hooks.hpp"
 #include "present_frame.hpp"
 
-#include "openxr_host.hpp"
-#include "dayz_runtime_probe.hpp"
-#include "debug_bridge.hpp"
 #include "logging.hpp"
+#include "plugin_loader.hpp"
 #include <MinHook.h>
 
 #include <atomic>
@@ -13,7 +13,6 @@
 #include <initializer_list>
 #include <mutex>
 #include <sstream>
-#include <string>
 #include <unordered_map>
 #include <utility>
 #include <wrl/client.h>
@@ -39,30 +38,14 @@ namespace
     std::mutex g_tablesMutex;
     std::unordered_map<void*, void*> g_trampolines;
     bool g_minHookInitialized{};
-    std::atomic_bool g_initializationAttempted{};
-
-    struct ResolutionSettings
-    {
-        bool enabled{};
-        UINT width{};
-        UINT height{};
-        std::wstring configPath;
-        std::wstring rawEnabled;
-    };
-    ResolutionSettings g_resolution;
-
-    const ResolutionSettings& GameResolution() noexcept
-    {
-        return g_resolution;
-    }
 
     void ApplyResolution(UINT& width, UINT& height) noexcept
     {
-        const ResolutionSettings& settings = GameResolution();
-        if (settings.enabled)
+        unsigned overrideWidth{}, overrideHeight{};
+        if (loader::BackbufferOverride(overrideWidth, overrideHeight))
         {
-            width = settings.width;
-            height = settings.height;
+            width = overrideWidth;
+            height = overrideHeight;
         }
     }
 
@@ -138,31 +121,6 @@ namespace
         return reinterpret_cast<Function>(found->second);
     }
 
-    void TickOpenXr(IDXGISwapChain* swapChain) noexcept
-    {
-        auto& host = OpenXrHost::Instance();
-        host.AttachGameSwapChain(swapChain);
-        if (!g_initializationAttempted.exchange(true))
-        {
-            Microsoft::WRL::ComPtr<ID3D11Device> device;
-            if (SUCCEEDED(swapChain->GetDevice(IID_PPV_ARGS(&device))))
-            {
-                dayz::runtime_probe::AttachD3DDevice(device.Get());
-                host.InitializeWithDevice(device.Get());
-            }
-        }
-        // The debug plugin is useful with OpenXR disabled too (hooks-only runs), so
-        // it starts as soon as the probe has had its chance to install.
-        dayz::debug_bridge::Start();
-        if (host.IsInitialized())
-        {
-            dayz::runtime_probe::Initialize();
-            dayz::runtime_probe::BeforePresent(swapChain);
-            host.Tick();
-            dayz::runtime_probe::OnPresent();
-        }
-    }
-
     HRESULT STDMETHODCALLTYPE HookedCreateSwapChain(IDXGIFactory* self, IUnknown* device,
         DXGI_SWAP_CHAIN_DESC* description, IDXGISwapChain** swapChain)
     {
@@ -171,7 +129,7 @@ namespace
             return E_FAIL;
         DXGI_SWAP_CHAIN_DESC adjusted{};
         DXGI_SWAP_CHAIN_DESC* effective = description;
-        if (description && GameResolution().enabled)
+        if (description)
         {
             adjusted = *description;
             ApplyResolution(adjusted.BufferDesc.Width, adjusted.BufferDesc.Height);
@@ -193,7 +151,7 @@ namespace
             return E_FAIL;
         DXGI_SWAP_CHAIN_DESC1 adjusted{};
         const DXGI_SWAP_CHAIN_DESC1* effective = description;
-        if (description && GameResolution().enabled)
+        if (description)
         {
             adjusted = *description;
             ApplyResolution(adjusted.Width, adjusted.Height);
@@ -215,7 +173,7 @@ namespace
             return E_FAIL;
         DXGI_SWAP_CHAIN_DESC1 adjusted{};
         const DXGI_SWAP_CHAIN_DESC1* effective = description;
-        if (description && GameResolution().enabled)
+        if (description)
         {
             adjusted = *description;
             ApplyResolution(adjusted.Width, adjusted.Height);
@@ -236,7 +194,7 @@ namespace
             return E_FAIL;
         DXGI_SWAP_CHAIN_DESC1 adjusted{};
         const DXGI_SWAP_CHAIN_DESC1* effective = description;
-        if (description && GameResolution().enabled)
+        if (description)
         {
             adjusted = *description;
             ApplyResolution(adjusted.Width, adjusted.Height);
@@ -253,8 +211,8 @@ namespace
         const auto original = Original<PresentFn>(self, 8);
         if (!original)
             return DXGI_ERROR_INVALID_CALL;
-        return hooks::TickAndPresent(flags, [self] {
-            TickOpenXr(self);
+        return hooks::TickAndPresent(flags, [self, flags] {
+            loader::OnPresent(self, flags);
             static std::atomic_bool firstPresent{true};
             if (firstPresent.exchange(false))
                 logging::Info("DXGI Present detour active");
@@ -267,7 +225,7 @@ namespace
         const auto original = Original<Present1Fn>(self, 22);
         if (!original)
             return DXGI_ERROR_INVALID_CALL;
-        return hooks::TickAndPresent(flags, [self] { TickOpenXr(self); },
+        return hooks::TickAndPresent(flags, [self, flags] { loader::OnPresent(self, flags); },
             [&] { return original(self, syncInterval, flags, parameters); });
     }
 
@@ -287,7 +245,10 @@ namespace
             << " format=" << static_cast<unsigned>(format) << " flags=0x" << std::hex << flags
             << " hr=0x" << static_cast<unsigned long>(result);
         if (SUCCEEDED(result))
+        {
             logging::Info(message.str());
+            loader::OnResizeBuffers(self, width, height);
+        }
         else
             logging::Error(message.str());
         return result;
@@ -296,26 +257,6 @@ namespace
 
 namespace hooks
 {
-    void ConfigureResolution(std::wstring_view configPath) noexcept
-    {
-        g_resolution = {};
-        g_resolution.configPath = configPath;
-        wchar_t enabled[16]{};
-        GetPrivateProfileStringW(L"stereo", L"override_game_resolution", L"false", enabled,
-            static_cast<DWORD>(std::size(enabled)), g_resolution.configPath.c_str());
-        g_resolution.rawEnabled = enabled;
-        g_resolution.enabled = _wcsicmp(enabled, L"true") == 0 ||
-            _wcsicmp(enabled, L"yes") == 0 || _wcsicmp(enabled, L"on") == 0 ||
-            wcscmp(enabled, L"1") == 0;
-        g_resolution.width = static_cast<UINT>(GetPrivateProfileIntW(L"stereo",
-            L"render_width", 1600, g_resolution.configPath.c_str()));
-        g_resolution.height = static_cast<UINT>(GetPrivateProfileIntW(L"stereo",
-            L"render_height", 1600, g_resolution.configPath.c_str()));
-        if (g_resolution.width < 640 || g_resolution.height < 640 ||
-            g_resolution.width > 8192 || g_resolution.height > 8192)
-            g_resolution.enabled = false;
-    }
-
     void AttachToFactory(IUnknown* unknown) noexcept
     {
         if (!unknown)
@@ -347,32 +288,13 @@ namespace hooks
             return;
 
         logging::Info("DXGI swap chain captured; installing MinHook detours");
-        static std::atomic_bool resolutionLogged{};
-        const ResolutionSettings& resolution = GameResolution();
-        static std::atomic_bool resolutionConfigLogged{};
-        if (!resolutionConfigLogged.exchange(true))
+        static std::atomic_bool overrideLogged{};
+        unsigned overrideWidth{}, overrideHeight{};
+        if (loader::BackbufferOverride(overrideWidth, overrideHeight) && !overrideLogged.exchange(true))
         {
             std::ostringstream message;
-            message << "Resolution config raw=";
-            for (wchar_t character : resolution.rawEnabled)
-                message << static_cast<char>(character);
-            message << " enabled=" << resolution.enabled << " size=" << resolution.width
-                << 'x' << resolution.height;
+            message << "backbuffer override active: " << overrideWidth << 'x' << overrideHeight;
             logging::Info(message.str());
-        }
-        if (resolution.enabled && !resolutionLogged.exchange(true))
-        {
-            std::ostringstream message;
-            message << "DayZ game resolution override active: " << resolution.width << 'x'
-                << resolution.height;
-            logging::Info(message.str());
-        }
-
-        Microsoft::WRL::ComPtr<ID3D11Device> gameDevice;
-        if (SUCCEEDED(swapChain->GetDevice(IID_PPV_ARGS(&gameDevice))))
-        {
-            dayz::runtime_probe::AttachD3DDevice(gameDevice.Get());
-            dayz::runtime_probe::Initialize();
         }
 
         Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain1;
@@ -390,5 +312,6 @@ namespace hooks
                 {8, reinterpret_cast<void*>(HookedPresent)},
                 {13, reinterpret_cast<void*>(HookedResizeBuffers)}});
         }
+        loader::OnSwapChainCreated(swapChain);
     }
 }

@@ -1,8 +1,10 @@
+// dxgi.dll proxy: forwards every export to the system DXGI and, when the plugin loader
+// started at least one plugin, attaches the swap-chain detours to the created factory.
 #include "dxgi_proxy.hpp"
 #include "swapchain_hooks.hpp"
 #include "logging.hpp"
+#include "plugin_loader.hpp"
 #include <dxgi1_6.h>
-#include <iterator>
 #include <mutex>
 #include <string>
 
@@ -10,8 +12,7 @@ namespace
 {
     HMODULE g_systemDxgi{};
     std::once_flag g_once;
-    std::once_flag g_configOnce;
-    bool g_hooksEnabled{};
+
     void LoadSystemDxgi() noexcept
     {
         wchar_t systemDirectory[MAX_PATH]{};
@@ -30,32 +31,16 @@ namespace
             g_systemDxgi = nullptr;
     }
 
+    // Plugins start on the first factory creation, before the game creates its swap chain,
+    // so a plugin can still request a backbuffer size.
     bool HooksEnabled() noexcept
     {
-        std::call_once(g_configOnce, []
-        {
-            logging::Initialize();
-            wchar_t executablePath[32768]{};
-            const DWORD length = GetModuleFileNameW(nullptr, executablePath,
-                static_cast<DWORD>(std::size(executablePath)));
-            if (length == 0 || length >= std::size(executablePath))
-                return;
-
-            std::wstring configPath(executablePath, length);
-            const auto separator = configPath.find_last_of(L"\\/");
-            if (separator == std::wstring::npos)
-                return;
-            configPath.resize(separator + 1);
-            configPath += L"dayz_openxr.ini";
-            hooks::ConfigureResolution(configPath);
-            wchar_t value[16]{};
-            GetPrivateProfileStringW(L"hooks", L"enabled", L"false", value,
-                static_cast<DWORD>(std::size(value)), configPath.c_str());
-            g_hooksEnabled = _wcsicmp(value, L"true") == 0 || _wcsicmp(value, L"yes") == 0 ||
-                _wcsicmp(value, L"on") == 0 || wcscmp(value, L"1") == 0;
-            logging::Info(g_hooksEnabled ? "DXGI hooks enabled" : "DXGI hooks disabled");
+        static std::once_flag logged;
+        const bool enabled = loader::Initialize();
+        std::call_once(logged, [enabled] {
+            logging::Info(enabled ? "DXGI hooks enabled (plugins started)" : "DXGI hooks disabled (no plugin started)");
         });
-        return g_hooksEnabled;
+        return enabled;
     }
 }
 
@@ -78,8 +63,6 @@ HRESULT WINAPI CreateDXGIFactory(REFIID riid, void** factory)
 
 HRESULT WINAPI CreateDXGIFactory1(REFIID riid, void** factory)
 {
-    logging::Initialize();
-    logging::Info("Proxy CreateDXGIFactory1 called");
     using Fn = HRESULT(WINAPI*)(REFIID, void**);
     const auto original = reinterpret_cast<Fn>(proxy::Resolve("CreateDXGIFactory1"));
     if (!original) return E_NOINTERFACE;

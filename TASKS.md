@@ -12,6 +12,73 @@ does not yet); update them when a track's State changes.
 > steps). Tracks about those features are frozen at their last State; R1/R5 continue. The
 > regression run has no client-cmd, haptic or calibrate steps while parked.
 
+## L1. Plugin loader: dxgi.dll hosts plugins, the VR plugin is one of them
+- Goal (2026-10-03, user): split the proxy into a generic plugin loader and a separate VR mod
+  DLL so rendering work stays isolated, with a host API for mods to declare settings
+  and hotkeys. First hotkeys: toggle VR mode (default F12) and recenter (default F11).
+- Design:
+  - `dxgi.dll` (target `dayz_pluginloader`, sources `loader/`) keeps only what every plugin
+    needs: system-dxgi forwarding, the factory/swapchain/present/resize detours
+    (MinHook), its own log `dayz_pluginloader.log`, config `dayz_pluginloader.ini`, mod
+    discovery (`plugins/*.dll`, `[loader] plugins_dir`), the settings and hotkey registries.
+    No OpenXR, no engine hooks, no DayZ knowledge.
+  - `plugins/dayzvr.dll` (target `dayzvr`, sources `vrplugin/` + `vr_common`): everything
+    that is VR today, unchanged behaviour: OpenXR host, runtime probe (engine hooks),
+    frame sources, patches, crash reporter, debug plugin bridge, `dayz_openxr.ini`.
+  - C ABI `include/dayz_plugin_api.h` (`DAYZ_PLUGIN_API_VERSION`): a plugin exports
+    `DayzPluginDescribe(DayzPluginInfo*)` (name, version, config file) and
+    `DayzPluginStart(const DayzPluginHost*, DayzPluginCallbacks*)` / `DayzPluginStop()`. Host
+    callbacks: `log`, `game_dir`, `request_backbuffer_size` (the resolution override
+    becomes a host service), `setting_register/get/set`, `hotkey_register`. Mod
+    callbacks: `on_swapchain_created`, `on_present` (non-TEST presents, before the
+    real Present), `on_resize_buffers`, `on_hotkey`, `on_setting_changed`.
+  - Settings: a plugin declares typed keys (`section.key`, title, description, bool/int/
+    float/enum/string, default, range, live|restart). The host stores values in the
+    mod's own config file (`dayz_openxr.ini` for the VR plugin, so every script keeps
+    working), notifies the plugin on change and is the single source for any UI.
+  - Hotkeys: a plugin declares actions with a default key; bindings live in
+    `dayz_pluginloader.ini [hotkeys] <plugin>.<action>=<key>` (same key grammar as the parked
+    `dayz_hotkeys`: `F12`, `ctrl+shift+r`, `numpad5`, `0x7B`). The host polls on the
+    present thread with edge detection and dispatches to the owning plugin.
+  - Toggle VR mode v1 = the VR plugin's `stereo.vr_enabled` tunable: off stops the HMD
+    camera rotation and eye alternation (flat game image in the headset), keeps the
+    menus on the game window with the stock cursor (no GUI quad, no mouse remap, no
+    virtual cursor) and pauses the HUD safe-area override; the OpenXR session keeps
+    running and the square backbuffer override cannot change live (headset session
+    2026-10-03: "jitter stopped, UI crushed in the centre, inventory only on the
+    quad" were the three gaps). Ending/restarting the session at runtime is later.
+- Phase 1 (this change): loader + API + VR plugin moved, same behaviour, regression
+  passes, both hotkeys working, `build.sh --deploy` copies `plugins/dayzvr.dll` and
+  installs `dayz_pluginloader.ini`, `dayz-status.sh` lists the new artifact.
+- Next:
+  1. Register every `dayz_openxr.schema.json` key through `setting_register` so the
+     ini parser, the debug protocol `tunables`, the config editor and the in-game UI
+     share one table (replaces the two native tunable tables; see U2).
+  2. Settings UI inside the game, two steps: (a) host-drawn overlay panel on the GUI
+     quad and the desktop, styled after DayZ's Options screen, opened from a hotkey and
+     from an injected "Mod Settings" button; (b) research native injection of a real
+     tab into the Options menu and keybind rows into the Controls menu (engine widget
+     and input-action registries; no server involvement, no script mod). (b) is a
+     multi-week reverse-engineering task and is scheduled after R1.
+  3. Hotkey editing in that UI (press-to-bind), written back to `dayz_pluginloader.ini`.
+  4. Move the debug plugin bridge into the host so every plugin's settings are reachable
+     through `dayz-vr-ctl.py`.
+  5. Toggle VR v2: end and re-create the OpenXR session, restore the plain present.
+  6. In-game console (user, 2026-10-03): the loader draws a drop-down console (default
+     key `^`, the key left of `1` on a German QWERTZ layout, scan code 0x29 / `VK_OEM_5`
+     on that layout; bind by scan code so the layout does not matter) with command
+     history and completion. Plugins register console commands (`name`, help, callback
+     with argv) and console variables through the host API; every registered setting
+     is automatically a console variable (`<mod>.<section>.<key> [value]`), every
+     hotkey action a command. Built-ins: `help`, `mods`, `set`, `get`, `bind`,
+     `unbind`, `exec <file>`, `log`. Drawn on the GUI quad in the headset and on the
+     desktop; the debug plugin's line protocol becomes a remote for the same command
+     table so `dayz-vr-ctl.py` and the console share one implementation.
+- Open: hotkeys poll `GetAsyncKeyState`, and `[hooks] keep_focus` makes the game look
+  focused even when it is not, so a bound key pressed in another window still fires;
+  the Visual Studio project files (`vr_mod.slnx`, `loader/dxgi.vcxproj`) are stale since the
+  CMake build became the only tested build and are not updated for the split.
+
 ## R1. True per-frame stereo (double world render)
 - State: `[stereo] stereo_mode=double` (experimental, off by default) hooks the world
   render (1.29.163709 DayZ+0x8E7650, signature verified), runs it twice per in-world
@@ -166,7 +233,7 @@ does not yet); update them when a track's State changes.
   fallback. Fix bridge freshness/internal-magazine audit
   findings before treating displayed values as reliable for every weapon.
 
-## U2. In-game settings UI (edit every mod setting at runtime)
+## U2. In-game settings UI (edit every plugin setting at runtime)
 - State: settings live in `dayz_openxr.ini`; the `[stereo]`/`[gui]`/`[comfort]`-style
   keys the render path reads per frame are already live tunables (debug plugin
   `set`, hotkey toggles), keys consumed at hook installation need a restart. No
@@ -292,7 +359,7 @@ does not yet); update them when a track's State changes.
   the tunable off re-engages the loop (error 0.1, counts moving). Headset: check
   that keyboard/stick free-look in the cabin still feels right with the lock.
 - State (2026-10-02 07:55, test rig): `scripts/dayz-cmd.sh spawn OffroadHatchback`
-  (wheels mapped per model: HatchbackWheel, CivSedanWheel, Truck_01_Wheel, <type>_Wheel),
+  (wheels mapped per pluginel: HatchbackWheel, CivSedanWheel, Truck_01_Wheel, <type>_Wheel),
   `tpto [dx dy dz]` stands the player at the driver's door, server `enter` runs
   `StartCommand_Vehicle(vehicle, 0, seat)` like the vanilla action's Start(), client
   `--client enter` requests `ActionGetInTransport` (needs a cursor hit position at the
@@ -325,7 +392,7 @@ does not yet); update them when a track's State changes.
   magnitude cannot be exercised headless.
 - State (08:23): trigger pedals wired (right = throttle, left = brake): while
   `in_vehicle` the host publishes `pedals_valid=1 throttle= brake=` instead of pressing
-  mouse buttons, the mod applies `SetThrottle`/`SetBrake` only while a pedal is pressed
+  mouse buttons, the plugin applies `SetThrottle`/`SetBrake` only while a pedal is pressed
   (>0.02) so W/S keep working. Sim: `pedals_valid` flips 0→1 on entering the car,
   values stay 0 (idle sim triggers), no errors; pressed values need real hands.
 - State (08:32): `vehicle.require_grip` (default on) makes the wheel valid only while
@@ -337,7 +404,7 @@ does not yet); update them when a track's State changes.
   hand-model track exists; (4) wrist dashboard (Enforce widget or native quad) from the
   new game.txt keys.
 - State (09:12): in-car buttons through the bridge: the host stops injecting A /
-  LGRAB+A / hotbar chords while `in_vehicle` and the mod reads `btn_a`, `grab_l`,
+  LGRAB+A / hotbar chords while `in_vehicle` and the plugin reads `btn_a`, `grab_l`,
   `stick_click_r` from vr.txt: A = engine start/stop (client-side `EngineStart`/
   `EngineStop` as the vanilla actions do for physics vehicles; stop refused above
   8 km/h), grip+A = `ActionSwitchLights`, right stick click = `ActionCarHornShort`
@@ -422,7 +489,7 @@ Findings, each with its fix state:
   move the way dayz-mcp PR 191 does; without it the server may rubber-band, so the keyboard
   path stays as fallback (`[controls] inject_keys=true`).
 - Bridge latency: vr.txt is written every 6 frames and read at 10 Hz; movement and aim
-  need every-frame delivery, so the mod must read a small `input.txt` each CommandHandler
+  need every-frame delivery, so the plugin must read a small `input.txt` each CommandHandler
   tick (or vr.txt itself at frame rate) and the host write it per frame.
 - Order: movement+aim+jump+raise first (fixes focus for walking and looking), then use via
   the action manager, then menus via XInput hook or UIManager, then remove the key path.
@@ -640,7 +707,7 @@ Findings, each with its fix state:
 
 additional prompts by user (might be implemented):
 
-nothing else we can improve? especially in regards to rendering, if thats really true, look into how we can have the mod load and run sqf files or lua files (there might be examples, i know uevr has some kind of sdk for lua, but i thini for dayz sqf would make more sense, giving access to vr related stuff directly in the sqf, also look into how we can maybe imrprove ui and motion controks even more (everything optionally like ammo counter next to gun mag or making the hud/menus more immersive
+nothing else we can improve? especially in regards to rendering, if thats really true, look into how we can have the plugin load and run sqf files or lua files (there might be examples, i know uevr has some kind of sdk for lua, but i thini for dayz sqf would make more sense, giving access to vr related stuff directly in the sqf, also look into how we can maybe imrprove ui and motion controks even more (everything optionally like ammo counter next to gun mag or making the hud/menus more immersive
 split all the work we discussed so far into tasks that never get marked as complete so you can always get back to something later after working on something else and dont forget regular commits
 mayge features like the floating ammo count could be enfirce scripts then if we give that bridge the necessary capabilities
 Continue until you have absolutely nothing more to do and cant even come up with anything yourself that can improve the project in anyway, in which case close yourself

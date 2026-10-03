@@ -3,7 +3,7 @@
 namespace hooks
 {
     // DXGI_PRESENT_TEST is an occlusion query. It must reach DXGI without
-    // starting an OpenXR frame or advancing the mod's game-frame state.
+    // starting an OpenXR frame or advancing a plugin's game-frame state.
     inline constexpr unsigned kPresentTestFlag = 0x00000001u;
 
     template<typename Tick, typename Present>
