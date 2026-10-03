@@ -154,21 +154,21 @@ step_deploy() {
   stamp="$(date +%Y%m%d-%H%M%S)"
   backup="$build_dir/deploy-backup/$stamp"
   if (( dry_run )); then
-    say "dry-run: would back up to $backup and copy dxgi.dll, dayz_openxr_debug.dll (and openxr_loader.dll if absent)"
+    say "dry-run: would back up to $backup and copy dxgi.dll, dayz_openxr_debug.dll, openxr_loader.dll"
     return
   fi
   mkdir -p "$backup"
   local name
-  for name in dxgi.dll dayz_openxr_debug.dll; do
+  # Everything the proxy needs to start: the dxgi proxy, the debug plugin and the
+  # OpenXR loader the proxy imports (the game folder has no copy of its own).
+  local source
+  for name in dxgi.dll dayz_openxr_debug.dll openxr_loader.dll; do
+    source="$build_dir/$name"
+    [[ "$name" == openxr_loader.dll ]] && source="$openxr_loader"
     [[ -f "$dayz_dir/$name" ]] && cp -p "$dayz_dir/$name" "$backup/$name"
-    cp -f "$build_dir/$name" "$dayz_dir/$name"
-    cmp "$build_dir/$name" "$dayz_dir/$name"
+    cp -f "$source" "$dayz_dir/$name"
+    cmp "$source" "$dayz_dir/$name"
   done
-  # The proxy imports the OpenXR loader; the game folder has no copy of its own.
-  if [[ ! -f "$dayz_dir/openxr_loader.dll" ]]; then
-    cp -f "$openxr_loader" "$dayz_dir/openxr_loader.dll"
-    say "installed openxr_loader.dll (none was present)"
-  fi
   if [[ ! -f "$dayz_dir/dayz_openxr.ini" ]]; then
     cp "$project_dir/dayz_openxr.ini" "$dayz_dir/dayz_openxr.ini"
     say "installed the reference dayz_openxr.ini (none was present)"

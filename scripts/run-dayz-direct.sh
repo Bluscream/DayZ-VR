@@ -82,6 +82,11 @@ if [[ -d "$project_dir/build/deploy-backup" ]]; then
   while IFS= read -r dir; do rm -rf -- "$dir"; say "pruned deploy backup $(basename -- "$dir")"; done \
     < <(find "$project_dir/build/deploy-backup" -mindepth 1 -maxdepth 1 -type d | sort -r | tail -n +6)
 fi
+if [[ -d "$log_dir" ]]; then
+  while IFS= read -r dir; do rm -rf -- "$dir"; say "pruned regression log $(basename -- "$dir")"; done \
+    < <(find "$log_dir" -mindepth 1 -maxdepth 1 -type d -name 'regression-*' | sort -r | tail -n +6)
+fi
+prune_newest 3 "$dayz_dir" 'dayz_openxr.ini.bak-*'
 openxr_log="$dayz_dir/dayz_openxr.log"
 if [[ -f "$openxr_log" ]]; then
   # One run per file: the previous run stays readable as .1, older ones go.
@@ -118,6 +123,19 @@ if (( use_sim )); then
   env_list+=("${sim_env[@]}")
   say "using the headless Monado runtime"
 fi
+
+# --- print the active configuration so unexpected values are never missed ------------
+ini="$dayz_dir/dayz_openxr.ini"
+say "active $ini (comments stripped)"
+grep -vE '^[[:space:]]*(#|;|$)' "$ini" | sed 's/^/    /'
+if ! diff -q <(grep -vE '^[[:space:]]*(#|;|$)' "$project_dir/dayz_openxr.ini") \
+             <(grep -vE '^[[:space:]]*(#|;|$)' "$ini") >/dev/null; then
+  say "the game ini differs from the repo reference dayz_openxr.ini (< repo, > game):"
+  diff <(grep -vE '^[[:space:]]*(#|;|$)' "$project_dir/dayz_openxr.ini") \
+       <(grep -vE '^[[:space:]]*(#|;|$)' "$ini") | sed 's/^/    /' || true
+fi
+say "game arguments: ${game_args[*]}"
+# ----------------------------------------------------------------------------------
 
 say "starting DayZ_x64.exe ${game_args[*]} via $(basename -- "$proton_dir") (log: $log_dir/dayz-direct.log)"
 cd "$dayz_dir"

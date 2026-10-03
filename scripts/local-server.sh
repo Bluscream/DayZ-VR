@@ -174,6 +174,29 @@ print("cfggameplay.json and db/globals.xml written")
 PY
 }
 
+# Prints serverDZ.cfg and the difficulty values the mission files carry, so a stale
+# or unexpected setting is visible on every start.
+print_active_config() {
+  say "active $server_dir/serverDZ.cfg (comments stripped)"
+  grep -vE '^[[:space:]]*(//|$)' "$server_dir/serverDZ.cfg" | sed 's/^/    /'
+  local mission="$server_dir/mpmissions/dayzOffline.chernarusplus"
+  if [[ -f "$mission/cfggameplay.json" ]]; then
+    say "active $mission/cfggameplay.json (GeneralData, StaminaData, ShockHandlingData)"
+    python3 - "$mission/cfggameplay.json" <<'PY' | sed 's/^/    /'
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+for section in ("GeneralData", "StaminaData", "ShockHandlingData", "DrowningData"):
+    for key, value in data.get(section, {}).items():
+        print(f"{section}.{key} = {value}")
+PY
+  fi
+  if [[ -f "$mission/db/globals.xml" ]]; then
+    say "active $mission/db/globals.xml"
+    grep -oE 'name="[^"]+" type="[0-9]+" value="[^"]*"' "$mission/db/globals.xml" \
+      | sed -E 's/name="([^"]+)" type="[0-9]+" value="([^"]*)"/    \1 = \2/'
+  fi
+}
+
 cmd_start() {
   [[ -f "$server_dir/DayZServer" && -f "$server_dir/serverDZ.cfg" ]] || die "run 'setup' first"
   if podman container exists "$container_name"; then
@@ -186,6 +209,7 @@ cmd_start() {
     server_mods="-serverMod=@DayZVR_Server"
     say "loading server mod @DayZVR_Server"
   fi
+  print_active_config
   say "starting $container_name on UDP $port (log: scripts/local-server.sh logs)"
   # --userns=keep-id keeps the host uid so the image's 'container' user (uid 1000)
   # owns the mounted files. Publish game/Steam/query UDP only on loopback, since
