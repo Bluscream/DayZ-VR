@@ -30,6 +30,14 @@ does not yet); update them when a track's State changes.
      survey: same world timestamp per eye pair, near-object disocclusion, no eye mixing in
      screen-space effects, CPU/GPU times vs mono at equal per-eye resolution; audit occlusion
      queries, reflections, exposure, temporal history and first-person geometry per eye.
+  3b. (2026-10-03) Survey of eight proprietary-engine VR mods (docs/research/
+     proprietary-engine-vr-mods.md): BladeVR and Racer PCVR get correct per-eye culling,
+     shadows and portals by calling the engine's whole scene render twice (draw duplication
+     alone left artefacts), with the frame counter advanced and once-per-frame side effects
+     gated to the last pass: same conclusion as finding 2. Queued experiments: ring-occupancy
+     log / pop-per-Present eye tags; layer orientation from the head pose with per-eye
+     position only; pair lock + world-delta clamp for alternate-eye; scene-preparation re-run
+     with culling widened; constant-buffer matrix patch only as a fallback.
   3. Camera translation written at FrameBase+0x2C is honoured neither for eye offset
      nor hmd_position_scale (60x showed no shift), rotation (+0x08..+0x20) is. So eye
      separation and positional tracking have never affected rendering; current output
