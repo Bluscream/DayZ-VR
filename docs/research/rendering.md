@@ -4,7 +4,7 @@ description: >-
   Frame structure, view prepare/execute/finalize, projection dispatch, camera FrameBase, FOV, HUD scale and GUI capture addresses of DayZ 1.29.163709, and the engine bugs the VR proxy works around.
 game_build: DayZ 1.29.163709 (DayZ_x64.exe, PE timestamp 0x6A72FC58)
 created: 2026-10-02T17:11+0200
-last_edited: 2026-10-02T19:50+0200
+last_edited: 2026-10-03T05:10+0200
 ---
 
 # Rendering (DayZ 1.29.163709)
@@ -89,6 +89,36 @@ and shows them on an OpenXR quad because the HUD projection does not survive the
   a view whose pointer was already null and crashed at `DayZ+0x1DDE4B`. Skipping that one
   executeView when the pointer is null drops one view for one frame and nothing else, since
   both call sites ignore the return value.
+
+## Render-target widgets and indexed cameras (dead end, verified 2026-10-03)
+
+The script API declares `RenderTargetWidget`, `SetWidgetWorld(widget, world, cameraIndex)`,
+`SetCamera/SetCameraEx(index, ...)` and `SetCameraVerticalFOV`. An independent survey
+(Codex, `/run/media/system/Data/Projects/codex/dayz-standalone-vr/docs/stereo-research.md`)
+suggested the widget's native draw as a route to a second world view. Traced on 1.29.163709:
+
+- The script bindings are live: `SetWidgetWorld` (`0x2C1750`) type-checks the widget against
+  `enf::RenderTargetWidget` RTTI and stores world pointer, camera index and a flag at
+  widget `+0xF8/+0x100/+0xF0` (`0x3B9EB0`); `SetCameraEx` (`0x2C07E0`) writes a 12-float
+  transform into the world's camera table at `world + 0x9C + index*0xA8` (`0x10D630`).
+- The widget draw virtual (`enf::RenderTargetWidget` vtable `0xC5E278` slot 6, `0x3B97D0`)
+  builds the projection for the indexed camera (`0x10F5D0` from `world + 0x98 + index*0xA8`),
+  sets the viewport on the renderer (`DAT_140fec3e8` slot `+0xE8`), creates or reuses the
+  target texture, then calls `world->vtable[10]` (`+0x50`) with `(renderer, cameraIndex, 0)`,
+  throttled by the refresh period (`+0x104`), and finally draws the texture as the widget.
+- `world->vtable[10]` is `enf::BaseWorld::Render` (`0x10D270`): it refuses when the camera
+  slot is disabled (`world[0x13 + index*0x15]`), refuses re-entry (`world[4]` counter) and
+  when another world is mid-render, then calls `world->vtable[11]` (`+0x58`) to do the work.
+- The live world is a `Landscape` (constructed at `0x9BDCF0`, vtable `0xD467C0`, global
+  `DAT_1442662E0`). Its slot 11 at `0xD46818` is `0x53940`, whose bytes are `C2 00 00`
+  (`ret 0`): an empty function, identical-code-folded with the other empty virtuals.
+  **The indexed-camera world render is a stub in the retail client.** The in-world frame
+  never uses this path either: the main loop (`0xA85090`) calls `0x8F6070`, which calls the
+  frame function `0x8E77C0` directly with the globals.
+
+Consequence: no script- or widget-driven second view exists; the second eye has to come from
+re-running the frame function's scene preparation ourselves (R1). The Bohemia tracker report
+DZG-926 asking for the render-target APIs to be enabled matches this finding.
 
 ## Open questions
 

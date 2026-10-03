@@ -23,6 +23,13 @@ does not yet); update them when a track's State changes.
      dispatch; the world render only executes those lists, so a second eye needs the
      scene preparation re-run (the frame function 0x8E77C0 calls 0x8E7650 at 0x8E7AED
      and 0x8E7B6B, the per-frame work above it is the real per-eye unit).
+  3a. (2026-10-03) The engine's own second-view path (RenderTargetWidget / SetWidgetWorld /
+     SetCameraEx) is verified dead: `Landscape` leaves the world render-with-camera virtual
+     empty (`ret`), see rendering.md "Render-target widgets and indexed cameras". No shortcut
+     around re-running the scene preparation. Adopt the stricter acceptance bar from the Codex
+     survey: same world timestamp per eye pair, near-object disocclusion, no eye mixing in
+     screen-space effects, CPU/GPU times vs mono at equal per-eye resolution; audit occlusion
+     queries, reflections, exposure, temporal history and first-person geometry per eye.
   3. Camera translation written at FrameBase+0x2C is honoured neither for eye offset
      nor hmd_position_scale (60x showed no shift), rotation (+0x08..+0x20) is. So eye
      separation and positional tracking have never affected rendering; current output
