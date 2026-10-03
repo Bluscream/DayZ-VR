@@ -56,9 +56,12 @@ Three independent projects converged on the same mechanism we implemented as fra
 - BioShock's **pair lock**: eye 0 snapshots camera rotation and location, eye 1 is forced to the
   same snapshot (`CameraHook.cpp:3311-3334`). Plus a **world-delta clamp**: the frame-delta
   function returns 0 on the right eye and delta plus carry on the left, so the world advances
-  once per pair (`:1725-1800`). For DayZ the equivalent is: freeze the HMD sample per pair (we
-  freeze per frame), and look for the simulation delta-time source so the second frame of a pair
-  advances nothing (candidate: the time argument of the frame function `0x8E77C0`).
+  once per pair (`:1725-1800`). The delta clamp is **single-player only**: DayZ's simulation is
+  server-authoritative, so freezing or halving the client's frame delta desyncs interpolation,
+  animation and the network tick. What transfers is the pair lock alone: one HMD sample and one
+  eye-pair centre for both frames of a pair (we freeze per frame today), with the world
+  advancing normally and the compositor's reprojection covering the difference. Both eyes
+  showing the same instant is only possible with synchronous stereo (C).
 - Wildlands' **capture-pollution guard**: reading the camera back read the mod's own write and
   compounded into discrete 1x/2x offsets ("three image positions per eye"); a candidate base
   within 0.10 m of the last write is rejected (`CameraProbe.cpp:1839-1888`). Our
@@ -127,7 +130,7 @@ Three independent projects converged on the same mechanism we implemented as fra
 
 1. Ring occupancy log and pop-per-Present eye tags (A).
 2. Layer orientation from the head pose, per-eye position only (A).
-3. Pair lock plus world-delta clamp for alternate-eye mode (B).
+3. Pair lock (one pose per eye pair, no world-time change) for alternate-eye mode (B).
 4. Re-run the mode-0 scene preparation for the second eye with the frame counter advanced and
    culling widened (C), capturing after pass 1 as today.
 5. Only if 4 stays blocked: constant-buffer patch of the view/projection at the main pass (D).

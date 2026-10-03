@@ -36,7 +36,8 @@ does not yet); update them when a track's State changes.
      alone left artefacts), with the frame counter advanced and once-per-frame side effects
      gated to the last pass: same conclusion as finding 2. Queued experiments: ring-occupancy
      log / pop-per-Present eye tags; layer orientation from the head pose with per-eye
-     position only; pair lock + world-delta clamp for alternate-eye; scene-preparation re-run
+     position only; pair lock (one pose per eye pair; no world-time clamp, DayZ is
+     server-authoritative) for alternate-eye; scene-preparation re-run
      with culling widened; constant-buffer matrix patch only as a fallback.
   3. Camera translation written at FrameBase+0x2C is honoured neither for eye offset
      nor hmd_position_scale (60x showed no shift), rotation (+0x08..+0x20) is. So eye
