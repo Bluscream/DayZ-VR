@@ -3029,7 +3029,7 @@ namespace dayz::runtime_probe
         g_frameRecords = ReadBoolean(L"stereo", L"frame_records", true);
         g_frameLag = ReadFloat(L"stereo", L"frame_lag", 1.0f);
         g_submitRenderedPose = ReadBoolean(L"stereo", L"submit_rendered_pose", true);
-        g_cameraSeparation = ReadFloat(L"stereo", L"camera_separation", 0.064f);
+        g_cameraSeparation = ReadFloat(L"stereo", L"camera_separation", -0.064f);
         g_hmdPositionScale = ReadFloat(L"stereo", L"hmd_position_scale", 1.0f);
         g_gameFov = (std::clamp)(ReadFloat(L"stereo", L"game_fov", 0.0f), 0.0f, 2.8f);
         ApplyProfileFovOverride();
@@ -3052,7 +3052,7 @@ namespace dayz::runtime_probe
             L"inventory_player_preview_visible", true);
         g_inventoryPreviewRotationScale = ReadFloat(L"gui",
             L"inventory_preview_rotation_scale", 0.5f);
-        const float imageShift = ReadFloat(L"stereo", L"image_shift", 0.0f);
+        const float imageShift = ReadFloat(L"stereo", L"image_shift", -0.128f);
         dayz::stereo_state::SetImageShift(imageShift);
         const std::wstring fitModeText = ReadString(L"stereo", L"fit_mode", L"contain");
         dayz::stereo_state::FitMode fitMode = dayz::stereo_state::FitMode::Contain;

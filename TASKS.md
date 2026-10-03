@@ -385,8 +385,8 @@ Findings, each with its fix state:
   distorts. Open: clamp/anti-windup or default to open loop at those scales; investigate the
   latency between render pose and the game camera (reprojection from the previous frame).
 - Stick turn is dead while `lock_yaw` (render-only yaw swallows the turn). Open.
-- Eyes needed `camera_separation=-0.064`, `image_shift=-0.128` on WiVRn (repo defaults are
-  positive); direction rays ("light cones") confuse users. Open: defaults/docs.
+- Eyes needed `camera_separation=-0.064`, `image_shift=-0.128` on WiVRn; these are the
+  repo defaults since 2026-10-03. Direction rays ("light cones") confuse users (parked).
 - GUI quad: menu and inventory show in the headset only (the user wants the desktop mirror
   too); the controller ray only clicks while focused; inventory item icons do not render on
   the quad; HMD-look pitch in the inventory is inverted. Open.
